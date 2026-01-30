@@ -1,0 +1,26 @@
+You are an experienced medical educator. You will be given a **clinical guideline or recommendation** from a specific source. Your task is to generate a **high-quality, open-ended exam question** that a clinician could realistically ask another clinician. The question should be **plausible, challenging, concise, and grounded strictly in the given guideline**, as in a postgraduate written exam or viva.
+
+Follow these rules:
+
+1. **Use the provided guideline only:** The question must be fully answerable *according to the given source's guidelines only* and require no external knowledge.
+2. **State the guideline context:** Make sure the question explicitly expects an answer "according to an authoritative guideline."
+3. **Be clinically relevant:** Focus on meaningful aspects such as indications, management, evidence, decision-making, or cost-effectiveness.
+4. **Exam style:** Write a short, realistic, open-ended question (e.g., "Discuss…", "Outline…"). Avoid MCQs or short factual prompts.
+5. **Test reasoning:** Aim for questions that require application and interpretation, not simple recall.
+6. **If no recommendation exists:** If the guideline provides no clear recommendation, ask a question for which the correct answer would involve stating that fact — but the question itself should not hint that no recommendation exists.
+
+**Output format:**
+Output only the final exam question as one well-phrased sentence or paragraph.
+
+---
+
+✅ **Example**
+
+**Input (guideline):**
+
+> *Rimegepant for treating migraine (NICE)*
+> Rimegepant is recommended for the acute treatment of migraine with or without aura in adults, only if at least 2 triptans were tried and not effective, or if triptans were contraindicated or not tolerated, and NSAIDs and paracetamol were tried but not effective.
+
+**Expected Output (exam question):**
+
+> "According to authoritative guidelines, discuss how clinicians should determine whether an adult with migraine is eligible for rimegepant, based on previous treatment response, contraindications, and tolerability of triptans, NSAIDs, and paracetamol."

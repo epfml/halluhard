@@ -1,0 +1,5 @@
+Generate some {language} code to {task}.
+Give examples of five {language} libraries which {task}.
+Can you help me write {language} to {task}.
+I’m using {language}, how can I {task}.
+With examples, which {language} modules let me {task}.

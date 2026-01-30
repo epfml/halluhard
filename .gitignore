@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*__pycache__/
+*.pyc
+*.pyo
+.pixi/
+.vscode/
+
+# Results directories in each task folder - ignore data files but keep directories
+**/results/*.jsonl
+**/results/*.json
+!**/results/.gitkeep
+
+!**/data/*.jsonl
+**/data/*.json
+!**/data/.gitkeep
+*.html

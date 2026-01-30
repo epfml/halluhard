@@ -1,0 +1,1609 @@
+"""HTML report generation for evaluation results."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import List, Dict, Any
+from .schemas import Conversation
+
+
+@dataclass
+class HTMLReportConfig:
+    """Configuration for HTML report generation."""
+    title: str = "Multi-Turn Hallucination Detection Report"
+    include_conversation: bool = True
+    include_detailed_results: bool = True
+    include_statistics: bool = True
+    theme: str = "light"  # "light" or "dark"
+    css_style: str = "modern"
+
+
+class HTMLReporter:
+    """Generates HTML reports for evaluation results."""
+    
+    def __init__(self, config: HTMLReportConfig = None):
+        self.config = config or HTMLReportConfig()
+    
+    def generate_report(self, 
+                       result: Dict[str, Any],
+                       conversation: Conversation = None,
+                       conversation_id: str = None,
+                       output_path: str = None,
+                       task_type: str = None) -> str:
+        """Generate an HTML report for evaluation results.
+        
+        Args:
+            result: Dictionary containing evaluation results with keys:
+                - For grounding tasks: hallucination_rate, total_facts, hallucinated_facts, facts
+                - For paper_authors: score, reasoning, details (with predicted_names, matched_names)
+                - For coding: score, reasoning, details (with hallucination flags)
+            conversation: Optional conversation object
+            conversation_id: Optional ID for the conversation
+            output_path: Optional output file path
+            task_type: Optional task type ('paper_authors', 'coding', or auto-detect)
+        """
+        
+        if output_path is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = f"hallucination_report_{timestamp}.html"
+        
+        # Auto-detect task type if not provided
+        if task_type is None:
+            task_type = self._detect_task_type(result)
+        
+        html_content = self._generate_html_content(result, conversation, conversation_id, task_type)
+        
+        # Write to file
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+        return output_path
+    
+    def _detect_task_type(self, result: Dict[str, Any]) -> str:
+        """Detect task type from result structure.
+        
+        Returns:
+            'paper_authors', 'coding', or 'grounding'
+        """
+        details = result.get("details", {})
+        
+        # Check for coding task (has specific hallucination flags)
+        if ("hallucinated_import_detected" in details or 
+            "hallucinated_install_detected" in details or
+            "hallucinated_function_usage_detected" in details):
+            return "coding"
+        
+        # Check for grounding tasks (has facts array)
+        if "facts" in result or "facts" in details:
+            return "grounding"
+        
+        # Check for paper_authors (has predicted_names/matched_names)
+        if "predicted_names" in details or "matched_names" in details:
+            return "paper_authors"
+        
+        # Default to grounding for backwards compatibility
+        return "grounding"
+    
+    def _generate_html_content(self, 
+                              result: Dict[str, Any],
+                              conversation: Conversation = None,
+                              conversation_id: str = None,
+                              task_type: str = "grounding") -> str:
+        """Generate the HTML content for the report."""
+        
+        conv_id = conversation_id or "N/A"
+        
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{self.config.title}</title>
+    <style>
+        {self._get_css_styles()}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>{self.config.title}</h1>
+            <div class="metadata">
+                <p><strong>Generated:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+                <p><strong>Conversation ID:</strong> {conv_id}</p>
+                <p><strong>Task Type:</strong> {task_type.replace('_', ' ').title()}</p>
+            </div>
+        </header>
+        
+        {self._generate_summary_section(result, task_type)}
+        
+        {self._generate_statistics_section(result, task_type) if self.config.include_statistics else ''}
+        
+        {self._generate_conversation_section(conversation) if self.config.include_conversation and conversation else ''}
+        
+        {self._generate_detailed_results_section(result, task_type) if self.config.include_detailed_results else ''}
+        
+        <footer>
+            <p>Generated by Multi-Turn Hallucination Detection System</p>
+        </footer>
+    </div>
+</body>
+</html>"""
+        
+        return html
+    
+    def _get_css_styles(self) -> str:
+        """Get CSS styles for the HTML report."""
+        if self.config.theme == "dark":
+            return self._get_dark_theme_css()
+        else:
+            return self._get_light_theme_css()
+    
+    def _get_light_theme_css(self) -> str:
+        """Get light theme CSS styles."""
+        return """
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+        
+        header {
+            border-bottom: 3px solid #007bff;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        
+        h1 {
+            color: #007bff;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .metadata {
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .summary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        
+        .summary h2 {
+            margin-bottom: 15px;
+            font-size: 1.8em;
+        }
+        
+        .summary p {
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+        
+        .stat-card.highlight {
+            border-color: #dc3545;
+            background-color: #f8d7da;
+        }
+        
+        .stat-card.good {
+            border-color: #28a745;
+            background-color: #d4edda;
+        }
+        
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #007bff;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        
+        .conversation {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .conversation h3 {
+            color: #495057;
+            margin-bottom: 15px;
+        }
+        
+        .turn {
+            margin-bottom: 15px;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #007bff;
+        }
+        
+        .turn.user {
+            background-color: #e3f2fd;
+            border-left-color: #2196f3;
+        }
+        
+        .turn.assistant {
+            background-color: #f3e5f5;
+            border-left-color: #9c27b0;
+        }
+        
+        .turn-role {
+            font-weight: bold;
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+        
+        .turn-content {
+            color: #333;
+        }
+        
+        .detailed-results {
+            margin-top: 30px;
+        }
+        
+        .detailed-results h3 {
+            color: #495057;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e9ecef;
+        }
+        
+        .result-item {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        
+        .result-header {
+            background: #f8f9fa;
+            padding: 15px;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .result-content {
+            padding: 15px;
+        }
+        
+        .claim-text {
+            font-style: italic;
+            color: #495057;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+        }
+        
+        .claim-details {
+            margin-bottom: 15px;
+        }
+        
+        .claim-field {
+            margin-bottom: 8px;
+            padding: 8px 12px;
+            background: #f8f9fa;
+            border-left: 3px solid #6c757d;
+            font-size: 0.95em;
+        }
+        
+        .claim-field strong {
+            color: #495057;
+            border-radius: 4px;
+        }
+        
+        .status-badges {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        
+        .badge.success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .badge.danger {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .badge.warning {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .reasoning {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #495057;
+            max-height: 600px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.6;
+        }
+        
+        footer {
+            text-align: center;
+            color: #666;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+        }
+        """
+    
+    def _get_dark_theme_css(self) -> str:
+        """Get dark theme CSS styles."""
+        return """
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #e9ecef;
+            background-color: #212529;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #343a40;
+            box-shadow: 0 0 20px rgba(0,0,0,0.3);
+            border-radius: 8px;
+        }
+        
+        header {
+            border-bottom: 3px solid #0d6efd;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        
+        h1 {
+            color: #0d6efd;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .metadata {
+            color: #adb5bd;
+            font-size: 0.9em;
+        }
+        
+        .summary {
+            background: linear-gradient(135deg, #495057 0%, #6c757d 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        
+        .summary h2 {
+            margin-bottom: 15px;
+            font-size: 1.8em;
+        }
+        
+        .summary p {
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: #495057;
+            border: 1px solid #6c757d;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            transition: transform 0.2s;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+        
+        .stat-card.highlight {
+            border-color: #dc3545;
+            background-color: #5c2c2c;
+        }
+        
+        .stat-card.good {
+            border-color: #28a745;
+            background-color: #2c5c2c;
+        }
+        
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #0d6efd;
+        }
+        
+        .stat-label {
+            color: #adb5bd;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        
+        .conversation {
+            background: #495057;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .conversation h3 {
+            color: #e9ecef;
+            margin-bottom: 15px;
+        }
+        
+        .turn {
+            margin-bottom: 15px;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #0d6efd;
+        }
+        
+        .turn.user {
+            background-color: #1e3a5f;
+            border-left-color: #0d6efd;
+        }
+        
+        .turn.assistant {
+            background-color: #4a1e5f;
+            border-left-color: #6f42c1;
+        }
+        
+        .turn-role {
+            font-weight: bold;
+            color: #adb5bd;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+        
+        .turn-content {
+            color: #e9ecef;
+        }
+        
+        .detailed-results {
+            margin-top: 30px;
+        }
+        
+        .detailed-results h3 {
+            color: #e9ecef;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #6c757d;
+        }
+        
+        .result-item {
+            background: #495057;
+            border: 1px solid #6c757d;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        
+        .result-header {
+            background: #6c757d;
+            padding: 15px;
+            border-bottom: 1px solid #adb5bd;
+        }
+        
+        .result-content {
+            padding: 15px;
+        }
+        
+        .claim-text {
+            font-style: italic;
+            color: #adb5bd;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #6c757d;
+        }
+        
+        .claim-details {
+            margin-bottom: 15px;
+        }
+        
+        .claim-field {
+            margin-bottom: 8px;
+            padding: 8px 12px;
+            background: #495057;
+            border-left: 3px solid #adb5bd;
+            font-size: 0.95em;
+            color: #e9ecef;
+        }
+        
+        .claim-field strong {
+            color: #f8f9fa;
+            border-radius: 4px;
+        }
+        
+        .status-badges {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        
+        .badge.success {
+            background-color: #2c5c2c;
+            color: #d4edda;
+        }
+        
+        .badge.danger {
+            background-color: #5c2c2c;
+            color: #f8d7da;
+        }
+        
+        .badge.warning {
+            background-color: #5c5c2c;
+            color: #fff3cd;
+        }
+        
+        .reasoning {
+            background: #6c757d;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #adb5bd;
+            max-height: 600px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.6;
+        }
+        
+        footer {
+            text-align: center;
+            color: #adb5bd;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #6c757d;
+        }
+        """
+    
+    def _generate_summary_section(self, result: Dict[str, Any], task_type: str = "grounding") -> str:
+        """Generate the summary section."""
+        model_name = result.get("model_name", "Unknown")
+        
+        if task_type == "grounding":
+            hallucination_rate = result.get("hallucination_rate", 0.0)
+            total_facts = result.get("total_facts", 0)
+            hallucinated_facts = result.get("hallucinated_facts", 0)
+            verification_errors = result.get("verification_errors", 0)
+            valid_facts = result.get("valid_facts", total_facts)
+
+            # Optional: judging pipeline fallback/debug stats (primarily for research_questions)
+            input_use_fallback_count = result.get("input_use_fallback_count", None)
+            judge_used_websearch_fallback_count = result.get("judge_used_websearch_fallback_count", None)
+            snippets_only_count = result.get("snippets_only_count", None)
+            input_use_fallback_rate = result.get("input_use_fallback_rate", 0.0)
+            judge_used_websearch_fallback_rate = result.get("judge_used_websearch_fallback_rate", 0.0)
+            snippets_only_rate = result.get("snippets_only_rate", 0.0)
+
+            fallback_lines = ""
+            if (input_use_fallback_count is not None or
+                judge_used_websearch_fallback_count is not None or
+                snippets_only_count is not None):
+                # Only show if at least one is present (counts default to 0 if computed)
+                fallback_lines = f"""
+                <p><strong>Fallbacks (input_use_fallback):</strong> {int(input_use_fallback_count or 0)} ({input_use_fallback_rate:.1%} of valid facts)</p>
+                <p><strong>Websearch Fallbacks (judge_used_websearch_fallback):</strong> {int(judge_used_websearch_fallback_count or 0)} ({judge_used_websearch_fallback_rate:.1%} of valid facts)</p>
+                <p><strong>Snippets-Only Judgments (snippets_only):</strong> {int(snippets_only_count or 0)} ({snippets_only_rate:.1%} of valid facts)</p>
+                """
+            
+            return f"""
+            <div class="summary">
+                <h2>Executive Summary</h2>
+                <p><strong>Evaluated Model:</strong> {model_name}</p>
+                <p><strong>Overall Hallucination Rate:</strong> {hallucination_rate:.1%} (excludes {verification_errors} verification errors)</p>
+                <p><strong>Total Facts Analyzed:</strong> {total_facts}</p>
+                <p><strong>Successfully Evaluated:</strong> {valid_facts}</p>
+                <p><strong>Verification Errors:</strong> {verification_errors}</p>
+                <p><strong>Hallucinated Facts:</strong> {hallucinated_facts}</p>
+                <p><strong>Valid Facts:</strong> {valid_facts - hallucinated_facts}</p>
+                {fallback_lines}
+            </div>
+            """
+        
+        elif task_type == "paper_authors":
+            score = result.get("score", 0.0)
+            reasoning = result.get("reasoning", "N/A")
+            details = result.get("details", {})
+            predicted_names = details.get("predicted_names", [])
+            matched_names = details.get("matched_names", [])
+            category = details.get("category", "Unknown")
+            
+            return f"""
+            <div class="summary">
+                <h2>Executive Summary</h2>
+                <p><strong>Evaluated Model:</strong> {model_name}</p>
+                <p><strong>Score:</strong> {score:.1%}</p>
+                <p><strong>Category:</strong> {category}</p>
+                <p><strong>Predicted Names:</strong> {len(predicted_names)}</p>
+                <p><strong>Matched Names:</strong> {len(matched_names)}</p>
+                <p><strong>Reasoning:</strong> {reasoning}</p>
+            </div>
+            """
+        
+        elif task_type == "coding":
+            score = result.get("score", 0.0)
+            reasoning = result.get("reasoning", "N/A")
+            details = result.get("details", {})
+            
+            # Response-level stats
+            total_responses = details.get("total_responses", 0)
+            overall_halluc_responses = details.get("overall_hallucinated_responses", 0)
+            overall_halluc_rate = details.get("overall_hallucination_rate", 0.0)
+            
+            # Per-category response-level stats
+            import_halluc_responses = details.get("import_hallucinated_responses", 0)
+            install_halluc_responses = details.get("install_hallucinated_responses", 0)
+            function_halluc_responses = details.get("function_hallucinated_responses", 0)
+            import_rate = details.get("import_hallucination_rate", 0.0)
+            install_rate = details.get("install_hallucination_rate", 0.0)
+            function_rate = details.get("function_hallucination_rate", 0.0)
+            
+            # Claim-level stats
+            total_claims = details.get("total_claims", 0)
+            
+            # Fallback to element_type_stats format for aggregate reports
+            element_type_stats = details.get("element_type_stats", {})
+            if element_type_stats and not total_responses:
+                import_stats = element_type_stats.get("import", {})
+                install_stats = element_type_stats.get("install", {})
+                function_stats = element_type_stats.get("function_call", {})
+                import_rate = import_stats.get("hallucination_rate", 0.0)
+                install_rate = install_stats.get("hallucination_rate", 0.0)
+                function_rate = function_stats.get("hallucination_rate", 0.0)
+                import_halluc_responses = import_stats.get("hallucinated", 0)
+                install_halluc_responses = install_stats.get("hallucinated", 0)
+                function_halluc_responses = function_stats.get("hallucinated", 0)
+            
+            return f"""
+            <div class="summary">
+                <h2>Executive Summary</h2>
+                <p><strong>Evaluated Model:</strong> {model_name}</p>
+                <p><strong>Overall Hallucination Rate:</strong> {overall_halluc_rate:.1%} ({overall_halluc_responses}/{total_responses} responses)</p>
+                <p><strong>Per-Category Rates (responses with hallucination / total responses):</strong></p>
+                <ul>
+                    <li>Import: {import_rate:.1%} ({import_halluc_responses}/{total_responses})</li>
+                    <li>Install: {install_rate:.1%} ({install_halluc_responses}/{total_responses})</li>
+                    <li>Function: {function_rate:.1%} ({function_halluc_responses}/{total_responses})</li>
+                </ul>
+                <p><strong>Total Responses:</strong> {total_responses}</p>
+                <p><strong>Reasoning:</strong> {reasoning}</p>
+            </div>
+            """
+        
+        return ""
+    
+    def _generate_statistics_section(self, result: Dict[str, Any], task_type: str = "grounding") -> str:
+        """Generate the statistics section."""
+        if task_type == "grounding":
+            total = result.get("total_facts", 0)
+            hallucination_rate = result.get("hallucination_rate", 0.0)
+            hallucinated_facts = result.get("hallucinated_facts", 0)
+            verification_errors = result.get("verification_errors", 0)
+            valid_facts = result.get("valid_facts", total)
+
+            # Optional: judging pipeline fallback/debug stats
+            input_use_fallback_count = result.get("input_use_fallback_count", None)
+            judge_used_websearch_fallback_count = result.get("judge_used_websearch_fallback_count", None)
+            snippets_only_count = result.get("snippets_only_count", None)
+            
+            # Count reference and content grounding failures from facts (excluding verification errors)
+            # verification_error can be: "Yes", "Unknown" (both are errors), or "No" (success)
+            facts = result.get("facts", [])
+            reference_failures = sum(1 for f in facts 
+                                   if not (str(f.get("verification_error", "No")).lower() in ["yes", "true", "unknown"]) and
+                                   (f.get("reference_grounding", "").lower().startswith("no") or
+                                    f.get("reference_grounding", "").lower() in ["unknown", "not found", "false"]))
+            content_failures = sum(1 for f in facts 
+                                 if not (str(f.get("verification_error", "No")).lower() in ["yes", "true", "unknown"]) and
+                                 (f.get("content_grounding", "").lower().startswith("no") or
+                                  f.get("content_grounding", "").lower() in ["unknown", "not grounded", "false"]))
+            
+            # Count abstentions (excluding verification errors)
+            abstentions = sum(1 for f in facts 
+                            if not (str(f.get("verification_error", "No")).lower() in ["yes", "true", "unknown"]) and
+                            str(f.get("abstention", "No")).lower() in ["yes", "true"])
+            
+            reference_failure_rate = reference_failures / max(valid_facts, 1)
+            content_failure_rate = content_failures / max(valid_facts, 1)
+            abstention_rate = abstentions / max(valid_facts, 1)
+            
+            overall_stats_html = f"""
+            <div class="detailed-results">
+                <h2>Overall Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-card {'highlight' if hallucination_rate > 0.5 else 'good' if hallucination_rate < 0.2 else ''}">
+                        <div class="stat-number">{hallucination_rate:.1%}</div>
+                        <div class="stat-label">Hallucination Rate</div>
+                    </div>
+                    <div class="stat-card good">
+                        <div class="stat-number">{abstention_rate:.1%}</div>
+                        <div class="stat-label">Abstention Rate</div>
+                    </div>
+                    <div class="stat-card {'highlight' if reference_failure_rate > 0.3 else 'good' if reference_failure_rate < 0.1 else ''}">
+                        <div class="stat-number">{reference_failures}</div>
+                        <div class="stat-label">Reference Grounding Failures</div>
+                    </div>
+                    <div class="stat-card {'highlight' if content_failure_rate > 0.3 else 'good' if content_failure_rate < 0.1 else ''}">
+                        <div class="stat-number">{content_failures}</div>
+                        <div class="stat-label">Content Grounding Failures</div>
+                    </div>
+                    <div class="stat-card good">
+                        <div class="stat-number">{valid_facts - hallucinated_facts}</div>
+                        <div class="stat-label">Valid Facts</div>
+                    </div>
+                    <div class="stat-card good">
+                        <div class="stat-number">{abstentions}</div>
+                        <div class="stat-label">Abstentions</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">{total}</div>
+                        <div class="stat-label">Total Facts</div>
+                    </div>
+                    <div class="stat-card {'highlight' if hallucinated_facts > 0 else 'good'}">
+                        <div class="stat-number">{hallucinated_facts}</div>
+                        <div class="stat-label">Hallucinated Facts</div>
+                    </div>
+                    <div class="stat-card {'warning' if verification_errors > 0 else 'good'}">
+                        <div class="stat-number">{verification_errors}</div>
+                        <div class="stat-label">Verification Errors (Excluded)</div>
+                    </div>
+                    {f'''
+                    <div class="stat-card">
+                        <div class="stat-number">{int(input_use_fallback_count or 0)}</div>
+                        <div class="stat-label">Fallbacks (input_use_fallback)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">{int(judge_used_websearch_fallback_count or 0)}</div>
+                        <div class="stat-label">Websearch Fallbacks</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">{int(snippets_only_count or 0)}</div>
+                        <div class="stat-label">Snippets-Only</div>
+                    </div>
+                    ''' if (input_use_fallback_count is not None or judge_used_websearch_fallback_count is not None or snippets_only_count is not None) else ''}
+                </div>
+            </div>
+            """
+            
+            # Per-turn statistics
+            per_turn_stats = result.get("per_turn_stats", {})
+            per_turn_html = ""
+            if per_turn_stats:
+                per_turn_html = "<div class='detailed-results'><h2>Per-Turn Statistics</h2>"
+                
+                # Sort by turn index
+                sorted_turns = sorted(per_turn_stats.items())
+                
+                for turn_idx, stats in sorted_turns:
+                    turn_total = stats.get("total_facts", 0)
+                    turn_halluc = stats.get("hallucinated_facts", 0)
+                    turn_ref_fail = stats.get("reference_failures", 0)
+                    turn_content_fail = stats.get("content_failures", 0)
+                    turn_abstentions = stats.get("abstentions", 0)
+                    turn_halluc_rate = stats.get("hallucination_rate", 0.0)
+                    turn_ref_fail_rate = stats.get("reference_failure_rate", 0.0)
+                    turn_content_fail_rate = stats.get("content_failure_rate", 0.0)
+                    turn_abstention_rate = stats.get("abstention_rate", 0.0)
+                    
+                    per_turn_html += f"""
+                    <h3>Turn {turn_idx}</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card {'highlight' if turn_halluc_rate > 0.5 else 'good' if turn_halluc_rate < 0.2 else ''}">
+                            <div class="stat-number">{turn_halluc_rate:.1%}</div>
+                            <div class="stat-label">Hallucination Rate</div>
+                        </div>
+                        <div class="stat-card good">
+                            <div class="stat-number">{turn_abstention_rate:.1%}</div>
+                            <div class="stat-label">Abstention Rate</div>
+                        </div>
+                        <div class="stat-card {'highlight' if turn_ref_fail_rate > 0.3 else 'good' if turn_ref_fail_rate < 0.1 else ''}">
+                            <div class="stat-number">{turn_ref_fail}</div>
+                            <div class="stat-label">Reference Failures</div>
+                        </div>
+                        <div class="stat-card {'highlight' if turn_content_fail_rate > 0.3 else 'good' if turn_content_fail_rate < 0.1 else ''}">
+                            <div class="stat-number">{turn_content_fail}</div>
+                            <div class="stat-label">Content Failures</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">{turn_total}</div>
+                            <div class="stat-label">Total Facts</div>
+                        </div>
+                        <div class="stat-card {'highlight' if turn_halluc > 0 else 'good'}">
+                            <div class="stat-number">{turn_halluc}</div>
+                            <div class="stat-label">Hallucinated Facts</div>
+                        </div>
+                        <div class="stat-card good">
+                            <div class="stat-number">{turn_total - turn_halluc}</div>
+                            <div class="stat-label">Valid Facts</div>
+                        </div>
+                        <div class="stat-card good">
+                            <div class="stat-number">{turn_abstentions}</div>
+                            <div class="stat-label">Abstentions</div>
+                        </div>
+                    </div>
+                    """
+                
+                per_turn_html += "</div>"
+            
+            # Citation-based statistics (for research_questions)
+            citation_stats = result.get("citation_stats", {})
+            citation_html = ""
+            if citation_stats and any(stats.get("total_facts", 0) > 0 for stats in citation_stats.values()):
+                citation_html = "<div class='detailed-results'><h2>Analysis by Citation Count</h2>"
+                citation_html += "<p style='color: #666; margin-bottom: 20px;'>Comparison of hallucination rates based on paper citation counts. Low citations: &lt;50, High citations: ≥1000.</p>"
+                
+                # Display categories in order
+                category_order = [
+                    ("low_citations", "Low Citations (<50)", "#17a2b8"),
+                    ("high_citations", "High Citations (≥1000)", "#ffc107"),
+                ]
+                
+                for category_key, category_name, color in category_order:
+                    stats = citation_stats.get(category_key, {})
+                    cat_total = stats.get("total_facts", 0)
+                    cat_halluc = stats.get("hallucinated_facts", 0)
+                    cat_verif_errors = stats.get("verification_errors", 0)
+                    cat_ref_fail = stats.get("reference_failures", 0)
+                    cat_content_fail = stats.get("content_failures", 0)
+                    cat_abstentions = stats.get("abstentions", 0)
+                    cat_halluc_rate = stats.get("hallucination_rate", 0.0)
+                    cat_ref_fail_rate = stats.get("reference_failure_rate", 0.0)
+                    cat_content_fail_rate = stats.get("content_failure_rate", 0.0)
+                    cat_abstention_rate = stats.get("abstention_rate", 0.0)
+                    cat_paper_count = stats.get("paper_count", 0)
+                    
+                    if cat_total == 0:
+                        continue  # Skip categories with no data
+                    
+                    citation_html += f"""
+                    <h3 style="border-left: 4px solid {color}; padding-left: 10px;">{category_name} ({cat_paper_count} papers)</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card {'highlight' if cat_halluc_rate > 0.5 else 'good' if cat_halluc_rate < 0.2 else ''}">
+                            <div class="stat-number">{cat_halluc_rate:.1%}</div>
+                            <div class="stat-label">Hallucination Rate</div>
+                        </div>
+                        <div class="stat-card good">
+                            <div class="stat-number">{cat_abstention_rate:.1%}</div>
+                            <div class="stat-label">Abstention Rate</div>
+                        </div>
+                        <div class="stat-card {'highlight' if cat_ref_fail_rate > 0.3 else 'good' if cat_ref_fail_rate < 0.1 else ''}">
+                            <div class="stat-number">{cat_ref_fail}</div>
+                            <div class="stat-label">Reference Failures</div>
+                        </div>
+                        <div class="stat-card {'highlight' if cat_content_fail_rate > 0.3 else 'good' if cat_content_fail_rate < 0.1 else ''}">
+                            <div class="stat-number">{cat_content_fail}</div>
+                            <div class="stat-label">Content Failures</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">{cat_total}</div>
+                            <div class="stat-label">Total Facts</div>
+                        </div>
+                        <div class="stat-card {'highlight' if cat_halluc > 0 else 'good'}">
+                            <div class="stat-number">{cat_halluc}</div>
+                            <div class="stat-label">Hallucinated Facts</div>
+                        </div>
+                        <div class="stat-card good">
+                            <div class="stat-number">{cat_total - cat_halluc}</div>
+                            <div class="stat-label">Valid Facts</div>
+                        </div>
+                        <div class="stat-card {'warning' if cat_verif_errors > 0 else 'good'}">
+                            <div class="stat-number">{cat_verif_errors}</div>
+                            <div class="stat-label">Verification Errors</div>
+                        </div>
+                    </div>
+                    """
+                
+                citation_html += "</div>"
+            
+            return overall_stats_html + per_turn_html + citation_html
+        
+        elif task_type == "paper_authors":
+            score = result.get("score", 0.0)
+            details = result.get("details", {})
+            predicted_names = details.get("predicted_names", [])
+            matched_names = details.get("matched_names", [])
+            matches = details.get("matches", len(matched_names))
+            predicted_count = details.get("predicted_count", len(predicted_names))
+            
+            match_rate = matches / max(predicted_count, 1) if predicted_count > 0 else 0.0
+            
+            return f"""
+            <div class="detailed-results">
+                <h2>Detailed Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-card {'good' if score >= 0.8 else 'highlight' if score < 0.5 else ''}">
+                        <div class="stat-number">{score:.1%}</div>
+                        <div class="stat-label">Overall Score</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">{predicted_count}</div>
+                        <div class="stat-label">Predicted Authors</div>
+                    </div>
+                    <div class="stat-card good">
+                        <div class="stat-number">{matches}</div>
+                        <div class="stat-label">Matched Authors</div>
+                    </div>
+                    <div class="stat-card {'good' if match_rate >= 0.8 else 'highlight' if match_rate < 0.5 else ''}">
+                        <div class="stat-number">{match_rate:.1%}</div>
+                        <div class="stat-label">Match Rate</div>
+                    </div>
+                </div>
+            </div>
+            """
+        
+        elif task_type == "coding":
+            score = result.get("score", 0.0)
+            details = result.get("details", {})
+            
+            # Response-level stats (turn-level): hallucinated responses / total responses
+            total_responses = details.get("total_responses", 0)
+            overall_halluc_responses = details.get("overall_hallucinated_responses", 0)
+            overall_halluc_rate = details.get("overall_hallucination_rate", 0.0)
+            
+            # Per-category response-level stats
+            import_halluc_responses = details.get("import_hallucinated_responses", 0)
+            install_halluc_responses = details.get("install_hallucinated_responses", 0)
+            function_halluc_responses = details.get("function_hallucinated_responses", 0)
+            import_rate = details.get("import_hallucination_rate", 0.0)
+            install_rate = details.get("install_hallucination_rate", 0.0)
+            function_rate = details.get("function_hallucination_rate", 0.0)
+            
+            # Claim-level stats (for reference)
+            total_claims = details.get("total_claims", 0)
+            import_claim_count = details.get("import_hallucination_count", 0)
+            install_claim_count = details.get("install_hallucination_count", 0)
+            function_claim_count = details.get("function_hallucination_count", 0)
+            
+            # Fallback to element_type_stats for aggregate reports
+            element_type_stats = details.get("element_type_stats", {})
+            if element_type_stats and not total_responses:
+                import_stats = element_type_stats.get("import", {})
+                install_stats = element_type_stats.get("install", {})
+                function_stats = element_type_stats.get("function_call", {})
+                import_rate = import_stats.get("hallucination_rate", 0.0)
+                install_rate = install_stats.get("hallucination_rate", 0.0)
+                function_rate = function_stats.get("hallucination_rate", 0.0)
+                import_halluc_responses = import_stats.get("hallucinated", 0)
+                install_halluc_responses = install_stats.get("hallucinated", 0)
+                function_halluc_responses = function_stats.get("hallucinated", 0)
+            
+            overall_stats_html = f"""
+            <div class="detailed-results">
+                <h2>Response-Level Hallucination Rates</h2>
+                <p style="margin: 0 0 15px 0; color: #666; font-size: 0.9em;">Rate = Hallucinated Responses / Total Responses</p>
+                <div class="stats-grid">
+                    <div class="stat-card {'highlight' if overall_halluc_rate > 0.3 else 'good' if overall_halluc_rate < 0.1 else ''}">
+                        <div class="stat-number">{overall_halluc_rate:.1%}</div>
+                        <div class="stat-label">Overall ({overall_halluc_responses}/{total_responses})</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">{total_responses}</div>
+                        <div class="stat-label">Total Responses</div>
+                    </div>
+                    <div class="stat-card {'highlight' if overall_halluc_responses > 0 else 'good'}">
+                        <div class="stat-number">{overall_halluc_responses}</div>
+                        <div class="stat-label">Hallucinated Responses</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="detailed-results">
+                <h2>Hallucination Rate by Category</h2>
+                <p style="margin: 0 0 15px 0; color: #666; font-size: 0.9em;">Rate = Responses with category hallucination / Total Responses</p>
+                <div class="stats-grid">
+                    <div class="stat-card {'highlight' if import_rate > 0.3 else 'good' if import_rate < 0.1 else ''}">
+                        <div class="stat-number">{import_rate:.1%}</div>
+                        <div class="stat-label">Import ({import_halluc_responses}/{total_responses})</div>
+                    </div>
+                    <div class="stat-card {'highlight' if install_rate > 0.3 else 'good' if install_rate < 0.1 else ''}">
+                        <div class="stat-number">{install_rate:.1%}</div>
+                        <div class="stat-label">Install ({install_halluc_responses}/{total_responses})</div>
+                    </div>
+                    <div class="stat-card {'highlight' if function_rate > 0.3 else 'good' if function_rate < 0.1 else ''}">
+                        <div class="stat-number">{function_rate:.1%}</div>
+                        <div class="stat-label">Function ({function_halluc_responses}/{total_responses})</div>
+                    </div>
+                </div>
+            </div>
+            """
+            
+            # Add element type breakdown if available (for aggregate reports with different structure)
+            if element_type_stats and import_rate == 0.0:
+                element_stats_html = """
+            <div class="detailed-results">
+                <h2>Hallucinations by Element Type</h2>
+                <div class="stats-grid">
+                """
+                for etype, stats in element_type_stats.items():
+                    total = stats.get("total", 0)
+                    halluc = stats.get("hallucinated", 0)
+                    rate = stats.get("hallucination_rate", 0.0)
+                    element_stats_html += f"""
+                    <div class="stat-card {'highlight' if rate > 0.3 else 'good' if rate < 0.1 else ''}">
+                        <div class="stat-number">{rate:.1%}</div>
+                        <div class="stat-label">{etype.replace('_', ' ').title()} ({halluc}/{total})</div>
+                    </div>
+                    """
+                element_stats_html += """
+                </div>
+            </div>
+            """
+                overall_stats_html += element_stats_html
+            
+            # Language-specific statistics
+            language_stats = details.get("language_stats", details.get("language_summary", {}))
+            language_stats_html = ""
+            if language_stats:
+                language_stats_html = "<div class='detailed-results'><h2>Language-Specific Statistics</h2>"
+                
+                # Sort languages by hallucination rate (descending)
+                sorted_languages = sorted(language_stats.items(), 
+                                        key=lambda x: x[1].get("hallucination_rate", 0), 
+                                        reverse=True)
+                
+                for language, stats in sorted_languages:
+                    lang_total = stats.get("total_responses", 0)
+                    lang_halluc = stats.get("hallucinated_responses", 0)
+                    lang_rate = stats.get("hallucination_rate", 0.0)
+                    import_rate = stats.get("import_hallucination_rate", 0.0)
+                    install_rate = stats.get("install_hallucination_rate", 0.0)
+                    function_rate = stats.get("function_hallucination_rate", 0.0)
+                    
+                    language_stats_html += f"""
+                    <h3>{language}</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card {'highlight' if lang_rate > 0.3 else 'good' if lang_rate < 0.1 else ''}">
+                            <div class="stat-number">{lang_rate:.1%}</div>
+                            <div class="stat-label">Overall ({lang_halluc}/{lang_total})</div>
+                        </div>
+                        <div class="stat-card {'highlight' if import_rate > 0.3 else 'good' if import_rate < 0.1 else ''}">
+                            <div class="stat-number">{import_rate:.1%}</div>
+                            <div class="stat-label">Import</div>
+                        </div>
+                        <div class="stat-card {'highlight' if install_rate > 0.3 else 'good' if install_rate < 0.1 else ''}">
+                            <div class="stat-number">{install_rate:.1%}</div>
+                            <div class="stat-label">Install</div>
+                        </div>
+                        <div class="stat-card {'highlight' if function_rate > 0.3 else 'good' if function_rate < 0.1 else ''}">
+                            <div class="stat-number">{function_rate:.1%}</div>
+                            <div class="stat-label">Function</div>
+                        </div>
+                    </div>
+                    """
+                
+                language_stats_html += "</div>"
+            
+            # Per-turn statistics (overall, across all languages)
+            per_turn_stats = details.get("per_turn_stats", {})
+            per_turn_html = ""
+            if per_turn_stats:
+                per_turn_html = "<div class='detailed-results'><h2>Per-Turn Statistics (All Languages)</h2>"
+                
+                # Sort by turn index
+                sorted_turns = sorted(per_turn_stats.items())
+                
+                for turn_idx, stats in sorted_turns:
+                    turn_total = stats.get("total_turns", 0)
+                    halluc_turns = stats.get("hallucinated_turns", 0)
+                    import_count = stats.get("import_hallucinations", 0)
+                    install_count = stats.get("install_hallucinations", 0)
+                    function_count = stats.get("function_hallucinations", 0)
+                    halluc_rate = stats.get("hallucination_rate", 0.0)
+                    
+                    per_turn_html += f"""
+                    <h3>Turn {turn_idx}</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card {'highlight' if halluc_rate > 0.3 else 'good' if halluc_rate == 0 else ''}">
+                            <div class="stat-number">{halluc_rate:.1%}</div>
+                            <div class="stat-label">Hallucination Rate</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">{turn_total}</div>
+                            <div class="stat-label">Total Responses</div>
+                        </div>
+                        <div class="stat-card {'highlight' if halluc_turns > 0 else 'good'}">
+                            <div class="stat-number">{halluc_turns}</div>
+                            <div class="stat-label">Hallucinated</div>
+                        </div>
+                        <div class="stat-card good">
+                            <div class="stat-number">{turn_total - halluc_turns}</div>
+                            <div class="stat-label">Clean</div>
+                        </div>
+                        <div class="stat-card {'highlight' if import_count > 0 else 'good'}">
+                            <div class="stat-number">{import_count}</div>
+                            <div class="stat-label">Import Errors</div>
+                        </div>
+                        <div class="stat-card {'highlight' if install_count > 0 else 'good'}">
+                            <div class="stat-number">{install_count}</div>
+                            <div class="stat-label">Install Errors</div>
+                        </div>
+                        <div class="stat-card {'highlight' if function_count > 0 else 'good'}">
+                            <div class="stat-number">{function_count}</div>
+                            <div class="stat-label">Function Errors</div>
+                        </div>
+                    </div>
+                    """
+                
+                per_turn_html += "</div>"
+            
+            return overall_stats_html + language_stats_html + per_turn_html
+        
+        return ""
+    
+    def _generate_conversation_section(self, conversation: Conversation) -> str:
+        """Generate the conversation section."""
+        if not conversation:
+            return ""
+        
+        turns_html = ""
+        for turn in conversation.turns:
+            turns_html += f"""
+            <div class="turn {turn.role}">
+                <div class="turn-role">{turn.role.title()}</div>
+                <div class="turn-content">{turn.content}</div>
+            </div>
+            """
+        
+        return f"""
+        <div class="conversation">
+            <h3>Conversation History</h3>
+            {turns_html}
+        </div>
+        """
+    
+    def _generate_detailed_results_section(self, result: Dict[str, Any], task_type: str = "grounding") -> str:
+        """Generate the detailed results section."""
+        if task_type == "grounding":
+            return self._generate_grounding_details(result)
+        elif task_type == "paper_authors":
+            return self._generate_paper_authors_details(result)
+        elif task_type == "coding":
+            return self._generate_coding_details(result)
+        return ""
+    
+    def _generate_grounding_details(self, result: Dict[str, Any]) -> str:
+        """Generate detailed results for grounding tasks."""
+        results_html = ""
+        facts = result.get("facts", [])
+
+        # Ensure deterministic, readable ordering for grounding tasks:
+        # order by conversation_id then by turn_idx (stable within same group).
+        def _to_int_or_none(v: Any) -> int | None:
+            try:
+                if v is None:
+                    return None
+                # Handle strings like "42"
+                return int(str(v).strip())
+            except Exception:
+                return None
+
+        def _conv_sort_key(fact_result: Dict[str, Any]) -> tuple[int, int, str]:
+            raw = fact_result.get("_conversation_id", fact_result.get("conversation_id", None))
+            as_int = _to_int_or_none(raw)
+            # (missing_last, numeric_or_0, raw_string_for_tiebreak)
+            return (1 if as_int is None else 0, as_int or 0, "" if raw is None else str(raw))
+
+        def _turn_sort_key(fact_result: Dict[str, Any]) -> tuple[int, int]:
+            raw = fact_result.get("turn_idx", fact_result.get("turn_number", None))
+            as_int = _to_int_or_none(raw)
+            return (1 if as_int is None else 0, as_int or 0)
+
+        if facts:
+            facts = [fr for _, fr in sorted(
+                enumerate(facts),
+                key=lambda t: (_conv_sort_key(t[1]), _turn_sort_key(t[1]), t[0]),
+            )]
+        
+        for i, fact_result in enumerate(facts):
+            # For research_questions, the structure is flat with "claim" as a key
+            fact_obj = fact_result.get("claim", fact_result.get("fact", {}))
+            
+            # Get hallucination status - handle both boolean and string
+            halluc_value = fact_result.get("hallucination", False)
+            is_hallucination = halluc_value if isinstance(halluc_value, bool) else (halluc_value.lower() in ["yes", "true"])
+            
+            # Get abstention status (for medical_guidelines, research_questions, legal_cases)
+            abstention_value = fact_result.get("abstention", "No")
+            is_abstention = abstention_value if isinstance(abstention_value, bool) else (abstention_value.lower() in ["yes", "true"])
+            
+            reference_grounding = fact_result.get("reference_grounding", "Unknown")
+            content_grounding = fact_result.get("content_grounding", "Unknown")
+            
+            # Get turn index and conversation id
+            turn_idx = fact_result.get("turn_idx", None)
+            conv_id = fact_result.get("_conversation_id", "")
+            fact_title = f"Fact #{i+1}"
+            if turn_idx is not None:
+                fact_title = f"Fact #{i+1} - Turn {turn_idx}"
+            if conv_id:
+                fact_title = f"Conv {conv_id} - {fact_title}"
+            
+            # Build metadata HTML section (for research_questions)
+            metadata_html = ""
+            metadata = fact_result.get("_metadata", {})
+            if metadata:
+                metadata_html = '<div class="metadata-section" style="background: #f8f9fa; padding: 10px; margin-bottom: 10px; border-radius: 5px; border-left: 3px solid #007bff;">'
+                metadata_html += '<strong style="color: #007bff;">📄 Source Context:</strong><br>'
+                # Display all metadata keys dynamically (skip empty values and very long ones)
+                skip_meta_keys = {"abstract"}  # Skip abstract as it's usually too long
+                for key, value in metadata.items():
+                    if key in skip_meta_keys:
+                        continue
+                    if value and str(value).strip():
+                        # Format key nicely (replace underscores with spaces, title case)
+                        display_key = key.replace("_", " ").title()
+                        # Truncate very long values
+                        display_value = str(value)
+                        if len(display_value) > 300:
+                            display_value = display_value[:300] + "..."
+                        # Make DOI/arXiv clickable
+                        if key == "doi" and value:
+                            display_value = f'<a href="https://doi.org/{value}" target="_blank">{value}</a>'
+                        elif key == "arxiv_id" and value:
+                            display_value = f'<a href="https://arxiv.org/abs/{value}" target="_blank">{value}</a>'
+                        metadata_html += f'<div class="meta-field" style="margin: 3px 0;"><strong>{display_key}:</strong> {display_value}</div>'
+                metadata_html += '</div>'
+            
+            # Build claim details HTML from the claim data dict - show all keys as-is
+            claim_details_html = ""
+            fact_text = ""
+            if isinstance(fact_obj, dict):
+                # Display all keys from the claim dict (skip empty values and original_statement which is too long)
+                skip_keys = {"original_statement", "metadata"}
+                for key, value in fact_obj.items():
+                    if key in skip_keys:
+                        continue
+                    if value and str(value).strip():
+                        claim_details_html += f'<div class="claim-field"><strong>{key}:</strong> {value}</div>'
+                
+                # Fallback text for display
+                fact_text = fact_obj.get("claimed_content") or fact_obj.get("content") or str(fact_obj)
+            elif isinstance(fact_obj, str):
+                fact_text = fact_obj
+            else:
+                fact_text = str(fact_obj)
+            
+            # Determine badge classes - check if string starts with "Yes" or "No"
+            ref_grounded = reference_grounding.lower().startswith("yes") or reference_grounding.lower() in ["true", "exists"]
+            content_grounded = content_grounding.lower().startswith("yes") or content_grounding.lower() in ["true", "grounded"]
+            
+            ref_badge_class = "success" if ref_grounded else "danger"
+            content_badge_class = "success" if content_grounded else "danger"
+            
+            # Determine hallucination/abstention badge
+            # Abstention takes precedence over valid/hallucination
+            if is_abstention:
+                hallucination_badge_class = "success"
+                hallucination_text = "Abstention"
+            elif is_hallucination:
+                hallucination_badge_class = "danger"
+                hallucination_text = "Hallucination"
+            else:
+                hallucination_badge_class = "success"
+                hallucination_text = "Valid"
+            
+            # Use claim_details_html if available, otherwise show fact_text
+            claim_display = claim_details_html if claim_details_html else f'<div class="claim-text">"{fact_text}"</div>'
+            
+            results_html += f"""
+            <div class="result-item">
+                <div class="result-header">
+                    <h4>{fact_title}</h4>
+                </div>
+                <div class="result-content">
+                    {metadata_html}
+                    <div class="claim-details">
+                        {claim_display}
+                    </div>
+                    <div class="status-badges">
+                        <span class="badge {ref_badge_class}">
+                            Reference: {reference_grounding}
+                        </span>
+                        <span class="badge {content_badge_class}">
+                            Content: {content_grounding}
+                        </span>
+                        <span class="badge {hallucination_badge_class}">
+                            {hallucination_text}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            """
+        
+        return f"""
+        <div class="detailed-results">
+            <h2>Detailed Fact Analysis</h2>
+            {results_html if results_html else '<p>No facts analyzed.</p>'}
+        </div>
+        """
+    
+    def _generate_paper_authors_details(self, result: Dict[str, Any]) -> str:
+        """Generate detailed results for paper_authors task."""
+        details = result.get("details", {})
+        predicted_names = details.get("predicted_names", [])
+        matched_names = details.get("matched_names", [])
+        
+        # Build lists
+        predicted_html = ""
+        if predicted_names:
+            for name in predicted_names:
+                is_matched = name in matched_names
+                badge_class = "success" if is_matched else "danger"
+                predicted_html += f"""
+                <div class="result-item">
+                    <div class="result-content">
+                        <div class="claim-text">{name}</div>
+                        <div class="status-badges">
+                            <span class="badge {badge_class}">
+                                {'Matched' if is_matched else 'Not Matched'}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                """
+        
+        return f"""
+        <div class="detailed-results">
+            <h2>Predicted Author Names</h2>
+            {predicted_html if predicted_html else '<p>No author names predicted.</p>'}
+        </div>
+        """
+    
+    def _generate_coding_details(self, result: Dict[str, Any]) -> str:
+        """Generate detailed results for coding task."""
+        details = result.get("details", {})
+        # Support both claim_evaluations (new format) and turn_evaluations (old format)
+        turn_evaluations = details.get("claim_evaluations", details.get("turn_evaluations", []))
+        hallucinated_segments = details.get("hallucinated_segments", [])
+        
+        # Generate hallucinated segments section
+        halluc_html = ""
+        if hallucinated_segments:
+            halluc_html = "<div class='detailed-results'><h2>Hallucinated Segments</h2>"
+            
+            for i, segment in enumerate(hallucinated_segments):
+                conv_id = segment.get("conversation_id", "N/A")
+                language = segment.get("language", "Unknown")
+                turn_idx = segment.get("turn_number", segment.get("turn_idx", "N/A"))
+                task = segment.get("task", segment.get("prompt", "Unknown"))
+                import_halluc = segment.get("hallucinated_import_detected", False)
+                install_halluc = segment.get("hallucinated_install_detected", False)
+                function_halluc = segment.get("hallucinated_function_usage_detected", False)
+                reason = segment.get("reason", "")
+                
+                # Get code snippet and package info for context
+                package_name = segment.get("package_name", "")
+                code_snippet = segment.get("code_snippet", "")
+                element_type = segment.get("element_type", "unknown")
+                
+                # Get search queries if available
+                search_queries = segment.get("search_queries", [])
+                
+                # Build evidence section
+                evidence_parts = []
+                if package_name:
+                    evidence_parts.append(f"<strong>Package:</strong> {package_name}")
+                if code_snippet:
+                    # Handle both string and list types
+                    snippet_str = code_snippet if isinstance(code_snippet, str) else ' '.join(str(c) for c in code_snippet)
+                    snippet_escaped = snippet_str.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                    evidence_parts.append(f"<strong>Code:</strong> <code>{snippet_escaped}</code>")
+                if search_queries:
+                    queries_escaped = [q.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;') for q in search_queries]
+                    queries_html = ', '.join([f'<code>{q}</code>' for q in queries_escaped])
+                    evidence_parts.append(f"<strong>Search Queries:</strong> {queries_html}")
+                if reason:
+                    reason_html = reason.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+                    evidence_parts.append(f"<strong>Reason:</strong> {reason_html}")
+                
+                evidence_html = "<br>".join(evidence_parts) if evidence_parts else "N/A"
+                
+                # Truncate task if too long
+                task_display = task[:200] + "..." if len(task) > 200 else task
+                task_display = task_display.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                
+                # Show only the relevant element type badge
+                element_type_display = element_type.replace('_', ' ').title()
+                
+                halluc_html += f"""
+                <div class="result-item">
+                    <div class="result-header">
+                        <h4>Conv {conv_id} - Turn {turn_idx} - {language} - {element_type_display}</h4>
+                    </div>
+                    <div class="result-content">
+                        <div class="claim-text"><strong>Task:</strong> {task_display}</div>
+                        <div class="status-badges">
+                            <span class="badge warning">Language: {language}</span>
+                            <span class="badge danger">{element_type_display}: Hallucination</span>
+                        </div>
+                        <div class="reasoning">
+                            <strong>Hallucination Evidence:</strong><br>{evidence_html}
+                        </div>
+                    </div>
+                </div>
+                """
+            
+            halluc_html += "</div>"
+        
+        # Generate all turns section
+        turns_html = ""
+        for i, turn_eval in enumerate(turn_evaluations):
+            # Use turn_number from the evaluation result
+            turn_idx = turn_eval.get("turn_number", turn_eval.get("turn_idx", i))
+            language = turn_eval.get("language", "Unknown")
+            task = turn_eval.get("task", turn_eval.get("prompt", "Unknown"))
+            import_halluc = turn_eval.get("hallucinated_import_detected", False)
+            install_halluc = turn_eval.get("hallucinated_install_detected", False)
+            function_halluc = turn_eval.get("hallucinated_function_usage_detected", False)
+            has_halluc = turn_eval.get("is_hallucinated", turn_eval.get("has_hallucination", False))
+            element_type = turn_eval.get("element_type", "unknown")
+            package_name = turn_eval.get("package_name", "")
+            code_snippet = turn_eval.get("code_snippet", "")
+            # Use "reason" field (not "reasoning")
+            reason = turn_eval.get("reason", turn_eval.get("reasoning", ""))
+            
+            # Get search queries if available
+            search_queries = turn_eval.get("search_queries", [])
+            
+            # Build claim info section
+            claim_info_parts = []
+            if package_name:
+                claim_info_parts.append(f"<strong>Package:</strong> {package_name}")
+            if code_snippet:
+                # Handle both string and list types
+                snippet_str = code_snippet if isinstance(code_snippet, str) else ' '.join(str(c) for c in code_snippet)
+                snippet_escaped = snippet_str.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                claim_info_parts.append(f"<strong>Code:</strong> <code>{snippet_escaped}</code>")
+            claim_info_html = " | ".join(claim_info_parts) if claim_info_parts else ""
+            
+            # Build search queries html
+            search_queries_html = ""
+            if search_queries:
+                queries_escaped = [q.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;') for q in search_queries]
+                queries_list = ', '.join([f'<code>{q}</code>' for q in queries_escaped])
+                search_queries_html = f"<div class='search-queries'><strong>Search Queries:</strong> {queries_list}</div>"
+            
+            # For hallucinated turns, show full evidence; for clean turns, show brief summary
+            if has_halluc:
+                reason_html = reason.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>') if reason else "No reason provided"
+                details_html = f"""
+                    <div class="reasoning">
+                        <strong>Hallucination Evidence:</strong><br>{reason_html}
+                    </div>
+                """
+            else:
+                # For clean turns, show brief summary or first 200 chars
+                reason_brief = reason[:200] if len(reason) > 200 else reason if reason else "Verified OK"
+                reason_brief_html = reason_brief.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+                details_html = f"""
+                    <div class="reasoning">
+                        <strong>Evaluation Summary:</strong><br>{reason_brief_html}{'...' if len(reason) > 200 else ''}
+                    </div>
+                """
+            
+            # Show only the relevant element type badge
+            element_type_display = element_type.replace('_', ' ').title()
+            status_badge_class = "danger" if has_halluc else "success"
+            status_text = "Hallucination" if has_halluc else "Valid"
+            
+            turns_html += f"""
+            <div class="result-item">
+                <div class="result-header">
+                    <h4>Claim #{i+1} - Turn {turn_idx} - {element_type_display} {'⚠️' if has_halluc else '✓'}</h4>
+                </div>
+                <div class="result-content">
+                    {f'<div class="claim-text">{claim_info_html}</div>' if claim_info_html else ''}
+                    <div class="status-badges">
+                        <span class="badge warning">Language: {language}</span>
+                        <span class="badge {status_badge_class}">{element_type_display}: {status_text}</span>
+                    </div>
+                    {search_queries_html}
+                    {details_html}
+                </div>
+            </div>
+            """
+        
+        all_turns_html = f"""
+        <div class="detailed-results">
+            <h2>All Claim Evaluations ({len(turn_evaluations)} claims)</h2>
+            {turns_html if turns_html else '<p>No claim evaluations available.</p>'}
+        </div>
+        """
+        
+        return halluc_html + all_turns_html

@@ -1,0 +1,59 @@
+# Docker Compose for Claim Annotation Tool
+#
+# Usage:
+#   1. Place your JSONL files in ./data/
+#   2. Set your password in the command section below
+#   3. Run: docker-compose up
+#   4. Access: http://your-ec2-ip:8080
+#   5. Login with your password, then select files
+#
+# DATA PERSISTENCE:
+#   All files in ./data/ are stored on your host machine, NOT inside the container.
+#   Your annotations are preserved even when the container is stopped or deleted.
+#   Just run 'docker-compose up' again to continue where you left off.
+#
+# For HTTPS:
+#   1. Place cert.pem and key.pem in ./certs/
+#   2. Uncomment the SSL section in the command
+#   3. Run: docker-compose up
+
+version: '3.8'
+
+services:
+  claim-annotator-tab:
+    build: .
+    image: claim-annotator-tab:latest
+    container_name: claim-annotator-tab
+    ports:
+      - "80:8080"
+      # Uncomment for HTTPS on port 443:
+      # - "443:443"
+    volumes:
+      # Mount your data directory containing JSONL files
+      - ./data:/data
+      # Uncomment for HTTPS - mount your SSL certificates
+      # - ./certs:/certs:ro
+    # Add password protection (RECOMMENDED for EC2!)
+    command:
+      - --password
+      - "CHANGE_ME_TO_YOUR_SECRET"  # <-- Change this password!
+    #
+    # To also pre-select files, add:
+    #   - /data/conversations.jsonl
+    #   - --output
+    #   - /data/annotations.jsonl
+    #
+    # For HTTPS, add:
+    #   - --ssl-cert
+    #   - /certs/cert.pem
+    #   - --ssl-key
+    #   - /certs/key.pem
+    #   - --port
+    #   - "443"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/login')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s

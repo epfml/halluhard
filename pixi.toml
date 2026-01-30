@@ -1,0 +1,65 @@
+[workspace]
+name = "create-hallucinations"
+version = "0.1.0"
+description = "HalluHard: A Hard Multi-Turn Hallucination Benchmark"
+authors = ["HalluHard Team"]
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
+
+[dependencies]
+python = ">=3.10,<3.13"
+openai = ">=1.108.0"
+python-dotenv = ">=1.1.1,<2"
+ipykernel = ">=6.30.1,<7"
+tiktoken = ">=0.11.0,<0.12"
+arxiv = ">=2.2.0,<3"
+pandas = ">=2.3.2,<3"
+matplotlib = ">=3.10.6,<4"
+seaborn = ">=0.13.2,<0.14"
+beautifulsoup4 = ">=4.13.5,<5"
+lxml = ">=6.0.2,<7"
+aiohttp = ">=3.12.15,<4"
+jinja2 = ">=3.1.6,<4"
+datasets = ">=3.0.0,<4"
+numpy = ">=1.26.0,<2"
+lxml-html-clean = ">=0.4.3,<0.5"
+markitdown = ">=0.1.3,<0.2"
+ffmpeg = ">=8.0.0,<9"
+httpx = ">=0.28.1,<0.29"
+bs4 = ">=4.14.2,<5"
+scikit-learn = ">=1.7.2,<2"
+json5 = ">=0.12.1,<0.13"
+
+[pypi-dependencies]
+anthropic = ">=0.40.0, <1"
+pymupdf-layout = ">=1.26.6, <2"
+pyalex = ">=0.19, <0.20"
+selenium = ">=4.36.0, <5"
+trafilatura = ">=2.0.0, <3"
+pymupdf4llm = ">=0.2.2, <0.3"
+google-genai = "*"
+
+[tasks]
+
+# Root-level wrappers (use --task to specify which task)
+report = "python report.py"
+
+# Paper authors task
+paper-authors-data = "python -m paper_authors.data_fetcher"
+paper-authors-generate = "python -m paper_authors.generate_responses"
+
+# Research questions task
+research-questions-data = "python -m research_questions.data_fetcher"
+research-questions-generate = "python -m research_questions.generate_responses"
+
+# Coding task
+coding-data = "python -m coding.data_fetcher"
+coding-generate = "python -m coding.generate_responses"
+
+# Legal cases task
+legal-cases-data = "python -m legal_cases.data_fetcher"
+legal-cases-generate = "python -m legal_cases.generate_responses"
+
+# Medical guidelines task
+medical-guidelines-data = "python -m medical_guidelines.data_fetcher"
+medical-guidelines-generate = "python -m medical_guidelines.generate_responses"
