@@ -174,10 +174,14 @@ For full transparency, we provide our data generation pipelines under `<task_nam
 ## Citing this work
 If you find our code useful, please cite our work
 ```
-@misc{fan2026halluhard,
-  title={HalluHard: A Hard Multi-Turn Hallucination Benchmark},
-  author={Fan, Dongyang and Delsad, Sebastien and Flammarion, Nicolas and Andriushchenko, Maksym},
-  year={2026}
+@misc{fan2026halluhardhardmultiturnhallucination,
+      title={HalluHard: A Hard Multi-Turn Hallucination Benchmark}, 
+      author={Dongyang Fan and Sebastien Delsad and Nicolas Flammarion and Maksym Andriushchenko},
+      year={2026},
+      eprint={2602.01031},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2602.01031}, 
 }
 ```
 
