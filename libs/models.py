@@ -9,7 +9,7 @@ from libs.sampler.deepseek_sampler import DeepSeekSampler
 from libs.sampler.anthropic_sampler import AnthropicSampler
 from libs.sampler.kimi_sampler import KimiSampler
 from libs.sampler.gemini_sampler import GeminiSampler
-from libs.sampler.zai_sampler import ZAISampler
+from libs.sampler.grok_sampler import GrokSampler
 from libs.sampler.openrouter_sampler import OpenRouterSampler
 
 
@@ -402,6 +402,16 @@ MODEL_REGISTRY = {
     },
     # Kimi (Moonshot AI) variants
     # See: https://platform.moonshot.ai/docs/guide/kimi-k2-quickstart
+    "kimi-k2.5": {
+        "model": "kimi-k2.5",
+        "temperature": 1.0,
+    },
+    "kimi-k2.5-websearch": {
+        "model": "kimi-k2.5",
+        "temperature": 1.0,
+        "max_tokens": 32768,
+        "web_search": True,
+    },
     "kimi-k2-thinking": {
         "model": "kimi-k2-thinking-turbo",
         "temperature": 1.0,
@@ -499,7 +509,17 @@ MODEL_REGISTRY = {
         "thinking_level": "high",
         "websearch": True,
     },
-    # GLM-4.7 - Z.AI's latest model with optional reasoning/thinking mode
+    # OpenRouter – GLM-5 /4.7 (Zhipu via z-ai, https://openrouter.ai/models)
+    "glm-5": {
+        "model": "z-ai/glm-5",
+        "temperature": 0.0,
+        "thinking": False,
+    },
+    "glm-5-thinking": {
+        "model": "z-ai/glm-5",
+        "temperature": 0.0,
+        "thinking": True,
+    },
     "glm-4.7": {
         "model": "z-ai/glm-4.7",
         "temperature": 1.0,
@@ -519,6 +539,15 @@ MODEL_REGISTRY = {
         "model": "z-ai/glm-4.7",
         "temperature": 0.0,
         "thinking": True,
+    },
+    # xAI Grok (https://docs.x.ai/developers/quickstart)
+    "grok-4": {
+        "model": "grok-4-0709",
+        "temperature": 0.0,
+    },
+    "grok-4-1-fast-reasoning": {
+        "model": "grok-4-1-fast-reasoning",
+        "temperature": 0.0,
     },
     # Aliases for convenience
     "default": {

@@ -1,7 +1,8 @@
 """OpenRouter sampler - async wrapper for models via OpenRouter API.
 
-OpenRouter provides OpenAI-compatible API for various models including GLM.
-See: https://openrouter.ai/docs
+OpenRouter provides OpenAI-compatible API for various models including GLM-4.7 and GLM-5.
+GLM-5 (Zhipu) is available as z-ai/glm-5. Use thinking=True for reasoning mode where supported.
+See: https://openrouter.ai/docs, https://openrouter.ai/models
 """
 
 import logging
@@ -60,8 +61,8 @@ class OpenRouterSampler(SamplerBase):
     """
     Sample from OpenRouter's chat completion API.
 
-    OpenRouter provides access to various models including GLM-4.7 with optional
-    reasoning/thinking mode. Uses OpenAI-compatible API format.
+    OpenRouter provides access to various models including GLM-4.7 and GLM-5 (z-ai/glm-5)
+    with optional reasoning/thinking mode. Uses OpenAI-compatible API format.
 
     See: https://openrouter.ai/docs
     """
@@ -70,7 +71,7 @@ class OpenRouterSampler(SamplerBase):
         self,
         model: str = "z-ai/glm-4.7",
         system_message: Optional[str] = None,
-        temperature: float = 0.6,
+        temperature: float = 0.0,
         max_retries: int = 5,
         thinking: bool = False,
     ):
@@ -78,7 +79,7 @@ class OpenRouterSampler(SamplerBase):
         Initialize the OpenRouter sampler.
 
         Args:
-            model: Model name (e.g., "z-ai/glm-4.7", "zhipu/glm-4-plus")
+            model: OpenRouter model id (e.g., "z-ai/glm-5", "z-ai/glm-4.7", "zhipu/glm-4-plus")
             system_message: Optional system message to prepend
             temperature: Sampling temperature (default 0.6)
             max_retries: Number of retries on transient errors
