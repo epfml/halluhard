@@ -326,6 +326,15 @@ MODEL_REGISTRY = {
         "temperature": 0.0,
         "websearch": True,
     },
+    "claude-sonnet-4-6": {
+        "model": "claude-sonnet-4-6",
+        "temperature": 0.0,
+    },
+    "claude-sonnet-4-6-websearch": {
+        "model": "claude-sonnet-4-6",
+        "temperature": 0.0,
+        "websearch": True,
+    },
     "claude-haiku-4-5": {
         "model": "claude-haiku-4-5",
         "temperature": 0.0,
@@ -348,7 +357,7 @@ MODEL_REGISTRY = {
         "temperature": 0.0,
         "websearch": True,
     },
-    # Claude Opus 4.5 with effort levels (only model that supports effort parameter)
+    # Claude Opus 4.5 with effort levels (supports low, medium, high)
     "claude-opus-4-5-low": {
         "model": "claude-opus-4-5",
         "temperature": 0.0,
@@ -380,6 +389,66 @@ MODEL_REGISTRY = {
         "model": "claude-opus-4-5",
         "temperature": 0.0,
         "effort": "high",
+        "websearch": True,
+    },
+    # Claude Opus 4.6 variants
+    "claude-opus-4-6": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+    },
+    "claude-opus-4-6-temp-1": {
+        "model": "claude-opus-4-6",
+        "temperature": 1.0,
+    },
+    "claude-opus-4-6-websearch": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+        "websearch": True,
+    },
+    # Claude Opus 4.6 with effort levels (supports low, medium, high, max)
+    "claude-opus-4-6-low": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+        "effort": "low",
+    },
+    "claude-opus-4-6-low-websearch": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+        "effort": "low",
+        "websearch": True,
+    },
+    "claude-opus-4-6-medium": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+        "effort": "medium",
+    },
+    "claude-opus-4-6-medium-websearch": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+        "effort": "medium",
+        "websearch": True,
+    },
+    "claude-opus-4-6-high": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+        "effort": "high",
+    },
+    "claude-opus-4-6-high-websearch": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+        "effort": "high",
+        "websearch": True,
+    },
+    # Max effort is only available on Opus 4.6+
+    "claude-opus-4-6-max": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+        "effort": "max",
+    },
+    "claude-opus-4-6-max-websearch": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+        "effort": "max",
         "websearch": True,
     },
     "claude-sonnet-4-0": {

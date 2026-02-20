@@ -36,8 +36,17 @@ class AnthropicSampler(SamplerBase):
     Sample from Anthropic's Claude chat completion API
     """
 
-    # Beta header for effort parameter (Claude Opus 4.5 only)
+    # Beta header for effort parameter (Claude Opus 4.5 only - GA on Opus 4.6+)
     EFFORT_BETA = "effort-2025-11-24"
+
+    def _is_opus_46_or_newer(self) -> bool:
+        """Check if the model is Claude Opus 4.6 or newer.
+        
+        Opus 4.6 has effort parameter GA (no beta header needed) and supports 'max' effort level.
+        """
+        model_lower = self.model.lower()
+        # Match claude-opus-4-6, claude-opus-4.6, or any version after 4.6
+        return "opus-4-6" in model_lower or "opus-4.6" in model_lower
 
     def __init__(
         self,
@@ -59,8 +68,9 @@ class AnthropicSampler(SamplerBase):
             temperature: Sampling temperature
             max_tokens: Maximum tokens in response
             max_retries: Number of retries on transient errors
-            effort: Optional effort level ("low", "medium", "high"). 
-                    Only supported by Claude Opus 4.5. Controls token usage vs thoroughness.
+            effort: Optional effort level ("low", "medium", "high", "max"). 
+                    Supported by Claude Opus 4.5+ models. Controls token usage vs thoroughness.
+                    Note: "max" effort is only available on Opus 4.6+.
                     See: https://platform.claude.com/docs/en/build-with-claude/effort
             websearch: Enable web search tool for real-time information.
                       See: https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
@@ -79,8 +89,11 @@ class AnthropicSampler(SamplerBase):
         self.max_web_searches = max_web_searches
         
         # Validate effort parameter
-        if effort is not None and effort not in ("low", "medium", "high"):
-            raise ValueError(f"effort must be 'low', 'medium', or 'high', got: {effort}")
+        valid_effort_levels = ["low", "medium", "high"]
+        if self._is_opus_46_or_newer():
+            valid_effort_levels.append("max")
+        if effort is not None and effort not in valid_effort_levels:
+            raise ValueError(f"effort must be one of {valid_effort_levels}, got: {effort}")
         
         # Build a descriptive tag for logging
         tag_parts = [model]
@@ -183,11 +196,16 @@ class AnthropicSampler(SamplerBase):
                         "max_uses": self.max_web_searches,
                     }]
                 
-                # Use beta API if effort is specified (Claude Opus 4.5 only)
+                # Handle effort parameter
                 if self.effort is not None:
-                    kwargs["betas"] = [self.EFFORT_BETA]
                     kwargs["output_config"] = {"effort": self.effort}
-                    response = await self.client.beta.messages.create(**kwargs)
+                    if self._is_opus_46_or_newer():
+                        # Opus 4.6+: effort is GA, no beta header needed
+                        response = await self.client.messages.create(**kwargs)
+                    else:
+                        # Opus 4.5: use beta API with effort header
+                        kwargs["betas"] = [self.EFFORT_BETA]
+                        response = await self.client.beta.messages.create(**kwargs)
                 else:
                     response = await self.client.messages.create(**kwargs)
                 
