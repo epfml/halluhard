@@ -4,6 +4,8 @@ A framework for evaluating hallucinations in multi-turn conversations across cha
 
 Check out our website: https://halluhard.com/
 
+[![HalluHard open vs proprietary models](/Users/dfan/Desktop/EPFL/2026_Spring/hallucinations/nice_plots/halluhard_vertical_bar_open_vs_prop.png)](/Users/dfan/Desktop/EPFL/2026_Spring/hallucinations/nice_plots/halluhard_vertical_bar_open_vs_prop.png)
+
 [Update: Feb 12, 2026] We’ve added the following models to our leaderboard: Kimi-K2.5-thinking (released Jan 29, 2026), GLM-5-thinking (released Feb 11, 2026), Grok-4-thinking, and Grok-4.1-thinking-fast.
 
 ## Preparation
