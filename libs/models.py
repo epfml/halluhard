@@ -36,6 +36,8 @@ def get_sampler(model_name: str):
         return DeepSeekSampler(**config)
     elif model_name.startswith("claude-"):
         return AnthropicSampler(**config)
+    elif model_name.startswith("kimi_openrouter-"):
+        return OpenRouterSampler(**config)
     elif model_name.startswith("kimi-"):
         return KimiSampler(**config)
     elif model_name.startswith("gemini-"):
@@ -493,6 +495,19 @@ MODEL_REGISTRY = {
         "model": "kimi-k2-0711-preview",
         "temperature": 0.0,
     },
+    # Kimi K2.5 via OpenRouter (moonshotai/kimi-k2.5)
+    # Uses Exa web search instead of native $web_search builtin.
+    "kimi_openrouter-k2.5": {
+        "model": "moonshotai/kimi-k2.5",
+        "temperature": 1.0,
+        "thinking": True,
+    },
+    "kimi_openrouter-k2.5-websearch": {
+        "model": "moonshotai/kimi-k2.5",
+        "temperature": 1.0,
+        "thinking": True,
+        "websearch": True,
+    },
     # =========================================================================
     # Gemini 3 models (https://ai.google.dev/gemini-api/docs/gemini-3)
     # =========================================================================
@@ -588,6 +603,18 @@ MODEL_REGISTRY = {
         "model": "z-ai/glm-5",
         "temperature": 0.0,
         "thinking": True,
+    },
+    "glm-5-websearch": {
+        "model": "z-ai/glm-5",
+        "temperature": 0.0,
+        "thinking": False,
+        "websearch": True,
+    },
+    "glm-5-thinking-websearch": {
+        "model": "z-ai/glm-5",
+        "temperature": 0.0,
+        "thinking": True,
+        "websearch": True,
     },
     "glm-4.7": {
         "model": "z-ai/glm-4.7",
