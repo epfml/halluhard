@@ -91,14 +91,14 @@ async def run_inference(
         output_path: Path to save conversations
         max_concurrent: Max concurrent API calls
         max_follow_ups: Maximum number of follow-up questions (0 = single-turn only)
-        follow_up_model_name: Model identifier for generating follow-up questions (None = use model_name)
+        follow_up_model_name: Model identifier for generating follow-up questions (None = gpt-5-mini)
         n: Maximum number of conversations to generate (None = use all data)
 
     Returns:
         Path to saved conversations
     """
-    # Default follow-up model to main model if not specified
-    follow_up_model_name = follow_up_model_name or model_name
+    # Simulated user (follow-up questions): default gpt-5-mini unless overridden
+    follow_up_model_name = follow_up_model_name or "gpt-5-mini"
     
     # Load system prompt from file
     prompt_path = Path(__file__).parent / "prompts" / system_prompt_name
@@ -304,7 +304,7 @@ if __name__ == "__main__":
         "--follow-up-model",
         type=str,
         default=None,
-        help="Model identifier for generating follow-up questions (default: same as --model)",
+        help="Model for simulated user follow-up questions (default: gpt-5-mini when omitted)",
     )
     parser.add_argument(
         "--n",
@@ -323,7 +323,7 @@ if __name__ == "__main__":
             output_path=args.output,
             max_concurrent=args.max_concurrent,
             max_follow_ups=args.max_follow_ups,
-            follow_up_model_name=args.follow_up_model or args.model,
+            follow_up_model_name=args.follow_up_model,
             n=args.n,
         )
     )

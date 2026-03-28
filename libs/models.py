@@ -43,6 +43,8 @@ def get_sampler(model_name: str):
     elif model_name.startswith("glm-"):
         # Can be either Z.AI or OpenRouter sampler. We use OpenRouter sampler for more concurrency.
         return OpenRouterSampler(**config)
+    elif model_name.startswith("grok-"):
+        return GrokSampler(**config)
     else:
         return ResponsesSampler(**config)
 
@@ -203,6 +205,109 @@ MODEL_REGISTRY = {
         "model": "gpt-5.2",
         "reasoning_effort": "medium",
         "websearch": False,
+    },
+    # GPT-5.3 — chat alias points at Instant / ChatGPT parity (gpt-5.3-chat-latest);
+    # reasoning variants use base id gpt-5.3 (Responses API). See OpenAI model docs.
+    "gpt-5.3-chat-latest": {
+        "model": "gpt-5.3-chat-latest",
+        "reasoning_effort": None,
+        "websearch": False,
+    },
+    "gpt-5.3-chat": {
+        "model": "gpt-5.3-chat-latest",
+        "reasoning_effort": None,
+        "websearch": False,
+    },
+    "gpt-5.3-chat-latest-websearch": {
+        "model": "gpt-5.3-chat-latest",
+        "reasoning_effort": None,
+        "websearch": True,
+    },
+    "gpt-5.3": {
+        "model": "gpt-5.3",
+        "reasoning_effort": "medium",
+        "websearch": False,
+    },
+    "gpt-5.3-minimal": {
+        "model": "gpt-5.3",
+        "reasoning_effort": "minimal",
+        "websearch": False,
+    },
+    "gpt-5.3-low": {
+        "model": "gpt-5.3",
+        "reasoning_effort": "low",
+        "websearch": False,
+    },
+    "gpt-5.3-medium": {
+        "model": "gpt-5.3",
+        "reasoning_effort": "medium",
+        "websearch": False,
+    },
+    "gpt-5.3-high": {
+        "model": "gpt-5.3",
+        "reasoning_effort": "high",
+        "websearch": False,
+    },
+    "gpt-5.3-minimal-websearch": {
+        "model": "gpt-5.3",
+        "reasoning_effort": "minimal",
+        "websearch": True,
+    },
+    "gpt-5.3-low-websearch": {
+        "model": "gpt-5.3",
+        "reasoning_effort": "low",
+        "websearch": True,
+    },
+    "gpt-5.3-medium-websearch": {
+        "model": "gpt-5.3",
+        "reasoning_effort": "medium",
+        "websearch": True,
+    },
+    "gpt-5.3-high-websearch": {
+        "model": "gpt-5.3",
+        "reasoning_effort": "high",
+        "websearch": True,
+    },
+    "gpt-5.3-codex": {
+        "model": "gpt-5.3-codex",
+        "reasoning_effort": None,
+        "websearch": False,
+    },
+    # GPT-5.4 — frontier model; reasoning defaults vary (see OpenAI latest-model guide).
+    "gpt-5.4": {
+        "model": "gpt-5.4",
+        "reasoning_effort": None,
+        "websearch": False,
+    },
+    "gpt-5.4-low": {
+        "model": "gpt-5.4",
+        "reasoning_effort": "low",
+        "websearch": False,
+    },
+    "gpt-5.4-medium": {
+        "model": "gpt-5.4",
+        "reasoning_effort": "medium",
+        "websearch": False,
+    },
+    "gpt-5.4-high": {
+        "model": "gpt-5.4",
+        "reasoning_effort": "high",
+        "websearch": False,
+    },
+    "gpt-5.4-low-websearch": {
+        "model": "gpt-5.4",
+        "reasoning_effort": "low",
+        "websearch": True,
+    },
+    "gpt-5.4-medium-websearch": {
+        "model": "gpt-5.4",
+        "reasoning_effort": "medium",
+        "websearch": True,
+    },
+    "gpt-5.4-high-websearch": {
+        "model": "gpt-5.4",
+        "reasoning_effort": "high",
+        "websearch": True,
     },
     "gpt-5.1": {
         "model": "gpt-5.1-chat-latest",
@@ -451,6 +556,34 @@ MODEL_REGISTRY = {
         "effort": "max",
         "websearch": True,
     },
+    # Shorthand "Claude 4.6" aliases (opus = flagship; sonnet = faster)
+    "claude-4-6": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+    },
+    "claude-4-6-websearch": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+        "websearch": True,
+    },
+    "claude-4-6-opus": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+    },
+    "claude-4-6-opus-websearch": {
+        "model": "claude-opus-4-6",
+        "temperature": 0.0,
+        "websearch": True,
+    },
+    "claude-4-6-sonnet": {
+        "model": "claude-sonnet-4-6",
+        "temperature": 0.0,
+    },
+    "claude-4-6-sonnet-websearch": {
+        "model": "claude-sonnet-4-6",
+        "temperature": 0.0,
+        "websearch": True,
+    },
     "claude-sonnet-4-0": {
         "model": "claude-sonnet-4-0",
         "temperature": 0.0,
@@ -496,6 +629,26 @@ MODEL_REGISTRY = {
     # =========================================================================
     # Gemini 3 models (https://ai.google.dev/gemini-api/docs/gemini-3)
     # =========================================================================
+    # Gemini 3.1 Pro (https://ai.google.dev/gemini-api/docs/gemini-3)
+    "gemini-3.1-pro-preview": {
+        "model": "gemini-3.1-pro-preview",
+        "temperature": 0.0,
+        "thinking_level": "high",
+        "websearch": False,
+    },
+    "gemini-3.1-pro-websearch": {
+        "model": "gemini-3.1-pro-preview",
+        "temperature": 0.0,
+        "thinking_level": "high",
+        "websearch": True,
+    },
+    # Friendly alias (same API model as gemini-3.1-pro-preview)
+    "gemini-3.1-pro": {
+        "model": "gemini-3.1-pro-preview",
+        "temperature": 0.0,
+        "thinking_level": "high",
+        "websearch": False,
+    },
     # Gemini 3 Pro - most capable, complex reasoning
     "gemini-3-pro": {
         "model": "gemini-3-pro-preview",

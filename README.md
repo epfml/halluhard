@@ -123,12 +123,13 @@ Each task follows the same workflow:
 
 The framework supports multiple LLM providers and models:
 
-- **OpenAI**: `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5-medium`, `gpt-5.2`, `gpt-5.2-medium-websearch`
-- **Anthropic**: `claude-opus-4-5`, `claude-sonnet-4-5`, `claude-haiku-4-5`, `claude-opus-4-5-websearch`
+- **OpenAI**: `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5-medium`, `gpt-5.2`, `gpt-5.2-medium-websearch`, `gpt-5.3`, `gpt-5.3-chat-latest`,`gpt-5.4`, `gpt-5.4-medium-websearch`
+- **Anthropic**: `claude-4-6-opus`, `claude-4-6-sonnet`, `claude-opus-4-5`, `claude-sonnet-4-5`, `claude-haiku-4-5`, `claude-opus-4-5-websearch`, …
 - **DeepSeek**: `deepseek-reasoner`, `deepseek-chat`
-- **Google**: `gemini-3-pro`, `gemini-3-flash`
-- **Moonshot**: `kimi-k2-thinking`
-- **Z.ai**: `GLM-4.7-thinking`
+- **Google**: `gemini-3.1-pro`, `gemini-3.1-pro-websearch`, `gemini-3-pro` (shut down since March 9, 2026), `gemini-3-flash`
+- **Moonshot**: `kimi-k2.5`, `kimi-k2-thinking`
+- **Z.ai**: `GLM-4.7-thinking`, `GLM-5-thinking`
+- **xAI**: `grok-4`, `grok-4-1-fast-reasoning` 
 
 ## Project Structure
 
@@ -150,6 +151,7 @@ The framework supports multiple LLM providers and models:
 - `--data`: Path to input data file
 - `--model`: Model name to use
 - `--max-follow-ups`: Number of follow-up questions per conversation (typically 2)
+- `--follow-up-model`: Model that simulates the user for follow-up questions (optional; default is `gpt-5-mini` when omitted)
 - `--max-concurrent`: Number of concurrent API requests (varies by model rate limits)
 - `--n`: Number of conversations to generate (optional, defaults to all)
 - `--output`: Custom output path (optional)
@@ -162,6 +164,8 @@ The framework supports multiple LLM providers and models:
 - `--task`: Task name
 - `--max_claims_per_turn`: Maximum claims per turn (typically 5)
 - `--n`: Number of conversations to evaluate (optional)
+- `--judge-model`: When `--type` is `serper` or `webscraper` — registry id for the primary claim judge (default: `gpt-5-mini-medium`). Ignored for `openai` and `coding_direct`.
+- `--judge-fallback-model`: When `--type` is `serper` or `webscraper` — registry id for the judge on the web-grounding fallback path (default: `gpt-5-mini-medium-websearch`). Ignored for `openai` and `coding_direct`.
 - Worker parameters: `--searchers`, `--fetchers`, `--filters`, `--judges`
 
 ### Report generation parameters
