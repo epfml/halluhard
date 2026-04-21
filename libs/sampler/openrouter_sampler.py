@@ -74,6 +74,7 @@ class OpenRouterSampler(SamplerBase):
         temperature: float = 0.0,
         max_retries: int = 5,
         thinking: bool = False,
+        websearch: bool = False,
     ):
         """
         Initialize the OpenRouter sampler.
@@ -93,11 +94,13 @@ class OpenRouterSampler(SamplerBase):
         self.temperature = temperature
         self.max_retries = max_retries
         self.thinking = thinking
+        self.websearch = websearch
 
-        # Build a descriptive tag for logging
         tag_parts = [model.replace("/", "-")]
         if thinking:
             tag_parts.append("thinking")
+        if websearch:
+            tag_parts.append("websearch")
         self._log_tag = "-".join(tag_parts)
 
     def _pack_message(self, role: str, content: Any) -> dict[str, Any]:
@@ -174,14 +177,13 @@ class OpenRouterSampler(SamplerBase):
                     "temperature": self.temperature,
                 }
 
-                # Add reasoning/thinking mode if enabled
-                # See: https://openrouter.ai/docs (GLM-4.7 reasoning mode)
+                extra_body: dict[str, Any] = {}
                 if self.thinking:
-                    kwargs["extra_body"] = {
-                        "reasoning": {
-                            "enabled": True,
-                        },
-                    }
+                    extra_body["reasoning"] = {"enabled": True}
+                if self.websearch:
+                    extra_body["plugins"] = [{"id": "web"}]
+                if extra_body:
+                    kwargs["extra_body"] = extra_body
 
                 response = await self.client.chat.completions.create(**kwargs)
 
