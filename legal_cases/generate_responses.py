@@ -110,20 +110,64 @@ async def run_inference(
 
     print(f"Loaded system prompt: {system_prompt_name}\n")
 
+    # Check for existing conversations to continue from
+    output_path_obj = Path(output_path)
+    output_dir = output_path_obj.parent
+    existing_conversations = []
+    existing_metadata = []
+    latest_file = None
+    skip_count = 0
+
+    # Look for existing files matching the pattern
+    if output_dir.exists():
+        pattern = f"conversations_{model_name}_*convs.jsonl"
+        existing_files = list(output_dir.glob(pattern))
+        if existing_files:
+            # Load the most recent file (assuming it has the most conversations)
+            from libs.storage import load_conversations
+            latest_file = max(existing_files, key=lambda p: p.stat().st_mtime)
+            print(f"Found existing conversations file: {latest_file.name}")
+            try:
+                existing_conversations, existing_metadata = load_conversations(latest_file)
+                skip_count = len(existing_conversations)
+                print(f"  Loaded {skip_count} existing conversations")
+            except Exception as e:
+                print(f"  Warning: Could not load existing conversations: {e}")
+                existing_conversations = []
+                existing_metadata = []
+                skip_count = 0
+
     # Load legal cases from data file
     print(f"Loading legal cases from {data_path}...")
     cases = []
     with open(data_path, "r", encoding="utf-8") as f:
-        for line in f:
+        for idx, line in enumerate(f):
+            # Skip the first skip_count items (already processed)
+            if idx < skip_count:
+                continue
+
             cases.append(json.loads(line))
-            # Limit the number of cases if n is specified
-            if n is not None and len(cases) >= n:
-                break
-    
-    if n is not None and len(cases) > n:
-        cases = cases[:n]
-    
-    print(f"✓ Loaded {len(cases)} legal cases" + (f" (limited to {n})" if n is not None else "") + "\n")
+            # Limit the number of NEW cases to generate if n is specified
+            if n is not None:
+                total_needed = n
+                already_have = skip_count
+                new_needed = total_needed - already_have
+                if new_needed <= 0:
+                    print(f"✓ Already have {already_have} conversations (target: {n}), no new conversations needed\n")
+                    # Return existing file path
+                    if latest_file:
+                        return latest_file
+                    break
+                if len(cases) >= new_needed:
+                    break
+
+    if n is not None:
+        total_after = skip_count + len(cases)
+        print(f"✓ Loaded {len(cases)} new legal cases (will have {total_after} total after generation)" +
+              f" (target: {n}, existing: {skip_count})" + "\n")
+    else:
+        print(f"✓ Loaded {len(cases)} legal cases" +
+              (f" (skipped first {skip_count} already processed)" if skip_count > 0 else "") + "\n")
 
     # Create templates from cases
     templates = []
@@ -246,27 +290,35 @@ async def run_inference(
     conversations = [conv for conv, _ in valid_results]
     valid_templates = [tmpl for _, tmpl in valid_results]
 
-    print(f"\n✓ Generated {len(conversations)} conversations\n")
+    print(f"\n✓ Generated {len(conversations)} new conversations\n")
 
-    # Save conversations with metadata
-    metadata_list = [template.to_metadata() for template in valid_templates]
+    # Merge with existing conversations if any
+    if existing_conversations:
+        all_conversations = existing_conversations + conversations
+        all_metadata = existing_metadata + [template.to_metadata() for template in valid_templates]
+        print(f"  Merging with {len(existing_conversations)} existing conversations")
+    else:
+        all_conversations = conversations
+        all_metadata = [template.to_metadata() for template in valid_templates]
 
     from pathlib import Path as PathLib
     output_path_obj = PathLib(output_path)
-    num_conversations = len(conversations)
-    new_filename = f"conversations_{model_name}_{num_conversations}convs.jsonl"
+    total_conversations = len(all_conversations)
+    new_filename = f"conversations_{model_name}_{total_conversations}convs.jsonl"
     output_path = str(output_path_obj.parent / new_filename)
 
+    # Save all conversations (overwrite existing file or create new one)
     saved_path = save_conversations(
-        conversations=conversations,
+        conversations=all_conversations,
         output_path=output_path,
-        metadata_list=metadata_list,
+        metadata_list=all_metadata,
         task_name="legal_cases",
         model_name=model_name,
         system_prompt_name=system_prompt_name,
+        append=False,  # Overwrite to create a single merged file
     )
 
-    print(f"\n✓ Saved {len(conversations)} conversations to: {saved_path}")
+    print(f"\n✓ Saved {total_conversations} total conversations ({len(conversations)} new) to: {saved_path}")
 
     return saved_path
 
@@ -304,7 +356,7 @@ if __name__ == "__main__":
         "--follow-up-model",
         type=str,
         default=None,
-        help="Model for simulated user follow-up questions (default: gpt-5-mini when omitted)",
+        help="Model identifier for generating follow-up questions (default: same as --model)",
     )
     parser.add_argument(
         "--n",
@@ -323,7 +375,7 @@ if __name__ == "__main__":
             output_path=args.output,
             max_concurrent=args.max_concurrent,
             max_follow_ups=args.max_follow_ups,
-            follow_up_model_name=args.follow_up_model,
+            follow_up_model_name=args.follow_up_model or args.model,
             n=args.n,
         )
     )

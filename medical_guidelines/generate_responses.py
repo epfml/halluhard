@@ -112,14 +112,14 @@ async def run_inference(
         output_path: Path to save conversations
         max_concurrent: Max concurrent API calls
         max_follow_ups: Maximum number of follow-up questions (0 = single-turn only)
-        follow_up_model_name: Model identifier for generating follow-up questions (None = gpt-5-mini)
+        follow_up_model_name: Model identifier for generating follow-up questions (None = use model_name)
         n: Maximum number of conversations to generate (None = use all data)
 
     Returns:
         Path to saved conversations
     """
-    # Simulated user (follow-up questions): default gpt-5-mini unless overridden
-    follow_up_model_name = follow_up_model_name or "gpt-5-mini"
+    # Default follow-up model to main model if not specified
+    follow_up_model_name = follow_up_model_name or model_name
     
     # Load system prompt from file
     prompt_path = Path(__file__).parent / "prompts" / system_prompt_name
@@ -131,20 +131,64 @@ async def run_inference(
 
     print(f"Loaded system prompt: {system_prompt_name}\n")
 
+    # Check for existing conversations to continue from
+    output_path_obj = Path(output_path)
+    output_dir = output_path_obj.parent
+    existing_conversations = []
+    existing_metadata = []
+    latest_file = None
+    skip_count = 0
+    
+    # Look for existing files matching the pattern
+    if output_dir.exists():
+        pattern = f"conversations_{model_name}_*convs.jsonl"
+        existing_files = list(output_dir.glob(pattern))
+        if existing_files:
+            # Load the most recent file (assuming it has the most conversations)
+            from libs.storage import load_conversations
+            latest_file = max(existing_files, key=lambda p: p.stat().st_mtime)
+            print(f"Found existing conversations file: {latest_file.name}")
+            try:
+                existing_conversations, existing_metadata = load_conversations(latest_file)
+                skip_count = len(existing_conversations)
+                print(f"  Loaded {skip_count} existing conversations")
+            except Exception as e:
+                print(f"  Warning: Could not load existing conversations: {e}")
+                existing_conversations = []
+                existing_metadata = []
+                skip_count = 0
+
     # Load medical guidelines from data file
     print(f"Loading medical guidelines from {data_path}...")
     guidelines = []
     with open(data_path, "r", encoding="utf-8") as f:
-        for line in f:
+        for idx, line in enumerate(f):
+            # Skip the first skip_count items (already processed)
+            if idx < skip_count:
+                continue
+            
             guidelines.append(json.loads(line))
-            # Limit the number of guidelines if n is specified
-            if n is not None and len(guidelines) >= n:
-                break
+            # Limit the number of NEW guidelines to generate if n is specified
+            if n is not None:
+                total_needed = n
+                already_have = skip_count
+                new_needed = total_needed - already_have
+                if new_needed <= 0:
+                    print(f"[OK] Already have {already_have} conversations (target: {n}), no new conversations needed\n")
+                    # Return existing file path
+                    if latest_file:
+                        return latest_file
+                    break
+                if len(guidelines) >= new_needed:
+                    break
     
-    if n is not None and len(guidelines) > n:
-        guidelines = guidelines[:n]
-    
-    print(f"[OK] Loaded {len(guidelines)} medical guidelines" + (f" (limited to {n})" if n is not None else "") + "\n")
+    if n is not None:
+        total_after = skip_count + len(guidelines)
+        print(f"[OK] Loaded {len(guidelines)} new medical guidelines (will have {total_after} total after generation)" + 
+              f" (target: {n}, existing: {skip_count})" + "\n")
+    else:
+        print(f"[OK] Loaded {len(guidelines)} medical guidelines" + 
+              (f" (skipped first {skip_count} already processed)" if skip_count > 0 else "") + "\n")
 
     # Create templates from guidelines
     templates = []
@@ -267,28 +311,36 @@ async def run_inference(
     if skipped_count > 0:
         print(f"\n[!] Skipped {skipped_count} conversations due to errors (safety filters, etc.)")
     
-    print(f"\n[OK] Generated {len(conversations)} conversations successfully\n")
+    print(f"\n[OK] Generated {len(conversations)} new conversations successfully\n")
 
-    # Save conversations with metadata (only for successful conversations)
-    metadata_list = [template.to_metadata() for template in successful_templates]
+    # Merge with existing conversations if any
+    if existing_conversations:
+        all_conversations = existing_conversations + conversations
+        all_metadata = existing_metadata + [template.to_metadata() for template in successful_templates]
+        print(f"  Merging with {len(existing_conversations)} existing conversations")
+    else:
+        all_conversations = conversations
+        all_metadata = [template.to_metadata() for template in successful_templates]
     
-    # Update output path to include model name and conversation count
+    # Update output path to include model name and total conversation count
     from pathlib import Path as PathLib
     output_path_obj = PathLib(output_path)
-    num_conversations = len(conversations)
-    new_filename = f"conversations_{model_name}_{num_conversations}convs.jsonl"
+    total_conversations = len(all_conversations)
+    new_filename = f"conversations_{model_name}_{total_conversations}convs.jsonl"
     output_path = str(output_path_obj.parent / new_filename)
 
+    # Save all conversations (overwrite existing file or create new one)
     saved_path = save_conversations(
-        conversations=conversations,
+        conversations=all_conversations,
         output_path=output_path,
-        metadata_list=metadata_list,
+        metadata_list=all_metadata,
         task_name="medical_guidelines",
         model_name=model_name,
         system_prompt_name=system_prompt_name,
+        append=False,  # Overwrite to create a single merged file
     )
 
-    print(f"\n[OK] Saved {len(conversations)} conversations to: {saved_path}")
+    print(f"\n[OK] Saved {total_conversations} total conversations ({len(conversations)} new) to: {saved_path}")
 
     return saved_path
 
@@ -326,7 +378,7 @@ if __name__ == "__main__":
         "--follow-up-model",
         type=str,
         default=None,
-        help="Model for simulated user follow-up questions (default: gpt-5-mini when omitted)",
+        help="Model identifier for generating follow-up questions (default: same as --model)",
     )
     parser.add_argument(
         "--n",
@@ -345,7 +397,7 @@ if __name__ == "__main__":
             output_path=args.output,
             max_concurrent=args.max_concurrent,
             max_follow_ups=args.max_follow_ups,
-            follow_up_model_name=args.follow_up_model,
+            follow_up_model_name=args.follow_up_model or args.model,
             n=args.n,
         )
     )
