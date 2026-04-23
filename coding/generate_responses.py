@@ -381,7 +381,7 @@ if __name__ == "__main__":
         "--follow-up-model",
         type=str,
         default=None,
-        help="Model identifier for generating follow-up questions (default: same as --model)",
+        help="Model for simulated user follow-up questions (default: gpt-5-mini when omitted)",
     )
     parser.add_argument(
         "--n",
@@ -400,7 +400,7 @@ if __name__ == "__main__":
             output_path=args.output,
             max_concurrent=args.max_concurrent,
             max_follow_ups=args.max_follow_ups,
-            follow_up_model_name=args.follow_up_model or args.model,
+            follow_up_model_name=args.follow_up_model,
             n=args.n,
         )
     )
