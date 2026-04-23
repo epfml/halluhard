@@ -119,7 +119,7 @@ async def run_inference(
         Path to saved conversations
     """
     # Default follow-up model to main model if not specified
-    follow_up_model_name = follow_up_model_name or model_name
+    follow_up_model_name = follow_up_model_name or "gpt-5-mini"
     
     # Load system prompt from file
     prompt_path = Path(__file__).parent / "prompts" / system_prompt_name
