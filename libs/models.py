@@ -628,6 +628,17 @@ MODEL_REGISTRY = {
         "model": "kimi-k2-0711-preview",
         "temperature": 0.0,
     },
+    # Kimi k2.6
+    "kimi-k2.6": {
+        "model": "kimi-k2.6",
+        "temperature": 1.0,
+    },
+    "kimi-k2.6-websearch": {
+        "model": "kimi-k2.6",
+        "temperature": 1.0,
+        "max_tokens": 32768,
+        "web_search": True,
+    },
     # Kimi K2.5 via OpenRouter (moonshotai/kimi-k2.5)
     # Uses Exa web search instead of native $web_search builtin.
     "kimi_openrouter-k2.5": {
