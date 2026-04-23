@@ -112,13 +112,13 @@ async def run_inference(
         output_path: Path to save conversations
         max_concurrent: Max concurrent API calls
         max_follow_ups: Maximum number of follow-up questions (0 = single-turn only)
-        follow_up_model_name: Model identifier for generating follow-up questions (None = use model_name)
+        follow_up_model_name: Model identifier for generating follow-up questions (None = gpt-5-mini)
         n: Maximum number of conversations to generate (None = use all data)
 
     Returns:
         Path to saved conversations
     """
-    # Default follow-up model to main model if not specified
+    # Simulated user (follow-up questions): default gpt-5-mini unless overridden
     follow_up_model_name = follow_up_model_name or "gpt-5-mini"
     
     # Load system prompt from file
