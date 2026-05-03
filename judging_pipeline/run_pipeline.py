@@ -127,6 +127,8 @@ class BasePipeline(ABC):
         claims_cache_path: Path | str | None = None,
         checkpoint_interval: int = 100,
         max_claims_per_category: int | None = None,
+        judge_model: str | None = None,
+        judge_fallback_model: str | None = None,
     ):
         self.input_path = input_path
         self.output_path = output_path
@@ -139,6 +141,8 @@ class BasePipeline(ABC):
         self.seed = seed
         self.monitor_interval = monitor_interval
         self.checkpoint_interval = checkpoint_interval
+        self.judge_model = judge_model
+        self.judge_fallback_model = judge_fallback_model
         
         # Initialize strategy
         self.strategy = get_strategy(task_name, self.base_path)
@@ -1247,11 +1251,13 @@ class SerperPipeline(BasePipeline):
     name = "serper"
     
     def _get_model_config(self) -> ModelConfig:
+        judge = self.judge_model or "gpt-5-mini-medium"
+        judge_fb = self.judge_fallback_model or "gpt-5-mini-medium-websearch"
         return ModelConfig(
             extractor="gpt-5-mini-minimal",
             search="gpt-5-mini-minimal",
-            judge="gpt-5-mini-medium",
-            judge_fallback="gpt-5-mini-medium-websearch",
+            judge=judge,
+            judge_fallback=judge_fb,
         )
     
     def _log_config(self) -> None:
@@ -1322,11 +1328,13 @@ class WebscraperPipeline(BasePipeline):
     _aggregator: ContentAggregatorWorker | None = None
     
     def _get_model_config(self) -> ModelConfig:
+        judge = self.judge_model or "gpt-5-mini-medium"
+        judge_fb = self.judge_fallback_model or "gpt-5-mini-medium-websearch"
         return ModelConfig(
             extractor="gpt-5-mini-minimal",
             search="gpt-5-mini-minimal",
-            judge="gpt-5-mini-medium",
-            judge_fallback="gpt-5-mini-medium-websearch",
+            judge=judge,
+            judge_fallback=judge_fb,
         )
     
     def _log_config(self) -> None:
@@ -1841,11 +1849,11 @@ class CodingDirectPipeline:
         
         # Log configuration
         logger.info("=" * 70)
-        logger.info(f"CODING DIRECT PIPELINE (OpenAI Websearch)")
+        logger.info("CODING DIRECT PIPELINE (OpenAI Websearch)")
         logger.info(f"Task: {self.task_name}")
         logger.info("=" * 70)
         logger.info(f"Input: {self.input_path}")
-        logger.info(f"Model: gpt-5-mini-medium-websearch")
+        logger.info("Model: gpt-5-mini-medium-websearch")
         logger.info(f"Workers: {self.worker_config.num_judges} judges")
         logger.info("=" * 70 + "\n")
         
@@ -1971,6 +1979,8 @@ def create_pipeline(
     claims_cache_path: str | Path | None = None,
     checkpoint_interval: int = 100,
     max_claims_per_category: int | None = None,
+    judge_model: str | None = None,
+    judge_fallback_model: str | None = None,
 ) -> BasePipeline:
     """Factory function to create the appropriate pipeline."""
 
@@ -1981,7 +1991,7 @@ def create_pipeline(
     
     pipeline_class = PIPELINE_CLASSES[judging_type]
     
-    return pipeline_class(
+    common = dict(
         input_path=Path(input_path),
         output_path=Path(output_path) if output_path else None,
         worker_config=worker_config or WorkerConfig(),
@@ -1994,6 +2004,13 @@ def create_pipeline(
         claims_cache_path=Path(claims_cache_path) if claims_cache_path else None,
         checkpoint_interval=checkpoint_interval,
         max_claims_per_category=max_claims_per_category,
+    )
+    if judging_type == "coding_direct":
+        return pipeline_class(**common)
+    return pipeline_class(
+        **common,
+        judge_model=judge_model,
+        judge_fallback_model=judge_fallback_model,
     )
 
 
@@ -2016,6 +2033,8 @@ async def run_evaluation_pipeline(
     claims_cache_path: str | Path | None = None,
     checkpoint_interval: int = 100,
     max_claims_per_category: int | None = None,
+    judge_model: str | None = None,
+    judge_fallback_model: str | None = None,
 ) -> Path:
     """Convenience function to create and run a pipeline."""
     worker_config = WorkerConfig(
@@ -2041,6 +2060,8 @@ async def run_evaluation_pipeline(
         claims_cache_path=claims_cache_path,
         checkpoint_interval=checkpoint_interval,
         max_claims_per_category=max_claims_per_category,
+        judge_model=judge_model,
+        judge_fallback_model=judge_fallback_model,
     )
     
     return await pipeline.run()
@@ -2143,6 +2164,24 @@ if __name__ == "__main__":
         help="Seconds between progress updates",
     )
     parser.add_argument(
+        "--judge-model",
+        type=str,
+        default=None,
+        help=(
+            "For --type serper or webscraper: registry id for the primary claim judge "
+            "(default: gpt-5-mini-medium). Ignored for openai and coding_direct."
+        ),
+    )
+    parser.add_argument(
+        "--judge-fallback-model",
+        type=str,
+        default=None,
+        help=(
+            "For --type serper or webscraper: registry id for the judge used on the web-grounding "
+            "fallback path (default: gpt-5-mini-medium-websearch). Ignored for openai and coding_direct."
+        ),
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging",
@@ -2181,5 +2220,7 @@ if __name__ == "__main__":
             claims_cache_path=args.claims_cache,
             checkpoint_interval=args.checkpoint_interval,
             max_claims_per_category=max_per_cat,
+            judge_model=args.judge_model,
+            judge_fallback_model=args.judge_fallback_model,
         )
     )

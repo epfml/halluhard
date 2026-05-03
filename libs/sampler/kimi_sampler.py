@@ -61,9 +61,7 @@ def get_shared_kimi_client(max_connections: int = 50) -> AsyncOpenAI:
     return _shared_kimi_client
 
 
-# Per Moonshot docs: thinking models need max_tokens >= 16000 and temperature=1.0 for k2.5
-_DEFAULT_MAX_TOKENS_K25 = 16384
-_DEFAULT_MAX_TOKENS_OTHER = 8192
+_DEFAULT_MAX_TOKENS = 16384
 _K25_TEMPERATURE = 1.0
 
 # Built-in web search: declare in tools; when model returns tool_calls, we resubmit arguments as-is.
@@ -121,14 +119,11 @@ class KimiSampler(SamplerBase):
         self.client = get_shared_kimi_client()
         self.model = model
         self.system_message = system_message
-        is_k25 = "k2.5" in model.lower()
         if temperature is not None:
             self.temperature = temperature
         else:
-            self.temperature = _K25_TEMPERATURE if is_k25 else 0.0
-        self.max_tokens = max_tokens if max_tokens is not None else (
-            _DEFAULT_MAX_TOKENS_K25 if is_k25 else _DEFAULT_MAX_TOKENS_OTHER
-        )
+            self.temperature = _K25_TEMPERATURE
+        self.max_tokens = max_tokens if max_tokens is not None else _DEFAULT_MAX_TOKENS
         self.max_retries = max_retries
         self.record_thinking = record_thinking
         self.web_search = web_search
@@ -279,7 +274,8 @@ class KimiSampler(SamplerBase):
                 stream=True,
                 temperature=self.temperature,
                 tools=_WEB_SEARCH_TOOLS,
-                stream_options={"include_usage": True},  # Ensure usage data is included in stream
+                stream_options={"include_usage": True},
+                extra_body={"thinking": {"type": "disabled"}},
             )
             
             content_parts: list[str] = []
@@ -418,6 +414,7 @@ class KimiSampler(SamplerBase):
                         max_tokens=self.max_tokens,
                         stream=True,
                         temperature=self.temperature,
+                        stream_options={"include_usage": True},
                     )
                     content_parts: list[str] = []
                     reasoning_parts = []
