@@ -1253,13 +1253,16 @@ class SerperPipeline(BasePipeline):
     def _get_model_config(self) -> ModelConfig:
         judge = self.judge_model or "gpt-5-mini-medium"
         judge_fb = self.judge_fallback_model or "gpt-5-mini-medium-websearch"
+        # When a judge model is explicitly set, use it for extraction and search
+        # too (avoids requiring a separate OpenAI key for those roles).
+        aux = self.judge_model or "gpt-5-mini-minimal"
         return ModelConfig(
-            extractor="gpt-5-mini-minimal",
-            search="gpt-5-mini-minimal",
+            extractor=aux,
+            search=aux,
             judge=judge,
             judge_fallback=judge_fb,
         )
-    
+
     def _log_config(self) -> None:
         logger.info(f"Models: Extractor={self.model_config.extractor}, "
                    f"Search={self.model_config.search}, Judge={self.model_config.judge}")
@@ -1330,13 +1333,16 @@ class WebscraperPipeline(BasePipeline):
     def _get_model_config(self) -> ModelConfig:
         judge = self.judge_model or "gpt-5-mini-medium"
         judge_fb = self.judge_fallback_model or "gpt-5-mini-medium-websearch"
+        # When a judge model is explicitly set, use it for extraction and search
+        # too (avoids requiring a separate OpenAI key for those roles).
+        aux = self.judge_model or "gpt-5-mini-minimal"
         return ModelConfig(
-            extractor="gpt-5-mini-minimal",
-            search="gpt-5-mini-minimal",
+            extractor=aux,
+            search=aux,
             judge=judge,
             judge_fallback=judge_fb,
         )
-    
+
     def _log_config(self) -> None:
         logger.info(f"Models: Extractor={self.model_config.extractor}, "
                    f"Search={self.model_config.search}, Judge={self.model_config.judge}")
