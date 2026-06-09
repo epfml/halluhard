@@ -1531,6 +1531,7 @@ class CodingDirectPipeline:
         seed: int = 42,
         monitor_interval: float = 3.0,
         base_path: Path | str | None = None,
+        judge_model: str | None = None,
         # These are ignored but kept for API compatibility
         max_claims_per_turn: int | None = None,
         claims_cache_path: Path | str | None = None,
@@ -1544,6 +1545,7 @@ class CodingDirectPipeline:
         self.n_conversations = n_conversations
         self.seed = seed
         self.monitor_interval = monitor_interval
+        self.judge_model = judge_model
         self.base_path = Path(base_path) if base_path else Path(__file__).parent.parent
         
         # State
@@ -1859,7 +1861,7 @@ class CodingDirectPipeline:
         logger.info(f"Task: {self.task_name}")
         logger.info("=" * 70)
         logger.info(f"Input: {self.input_path}")
-        logger.info("Model: gpt-5-mini-medium-websearch")
+        logger.info(f"Model: {self.judge_model or 'gpt-5-mini-medium-websearch'}")
         logger.info(f"Workers: {self.worker_config.num_judges} judges")
         logger.info("=" * 70 + "\n")
         
@@ -1875,7 +1877,7 @@ class CodingDirectPipeline:
             return self._save_results([])
         
         # Create sampler
-        sampler = get_sampler("gpt-5-mini-medium-websearch")
+        sampler = get_sampler(self.judge_model or "gpt-5-mini-medium-websearch")
         
         # Create queues
         input_queue: MonitoredQueue[TurnItem] = MonitoredQueue("turns")
@@ -2012,7 +2014,7 @@ def create_pipeline(
         max_claims_per_category=max_claims_per_category,
     )
     if judging_type == "coding_direct":
-        return pipeline_class(**common)
+        return pipeline_class(**common, judge_model=judge_model)
     return pipeline_class(
         **common,
         judge_model=judge_model,
