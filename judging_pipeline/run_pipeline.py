@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, asdict, field
@@ -1532,10 +1533,10 @@ class CodingDirectPipeline:
         monitor_interval: float = 3.0,
         base_path: Path | str | None = None,
         judge_model: str | None = None,
+        checkpoint_interval: int = 100,
         # These are ignored but kept for API compatibility
         max_claims_per_turn: int | None = None,
         claims_cache_path: Path | str | None = None,
-        checkpoint_interval: int = 100,
         max_claims_per_category: int | None = None,
     ):
         self.input_path = input_path
@@ -1546,6 +1547,8 @@ class CodingDirectPipeline:
         self.seed = seed
         self.monitor_interval = monitor_interval
         self.judge_model = judge_model
+        # Persist partial results every N judged turns so the run is always resumable.
+        self.checkpoint_interval = checkpoint_interval
         self.base_path = Path(base_path) if base_path else Path(__file__).parent.parent
         
         # State
@@ -1656,15 +1659,22 @@ class CodingDirectPipeline:
                 install_hallucinations = 0
                 function_hallucinations = 0
             else:
-                # Count hallucinations
-                import_hallucinations = sum(1 for r in conv_results if r.hallucinated_import_detected)
-                install_hallucinations = sum(1 for r in conv_results if r.hallucinated_install_detected)
-                function_hallucinations = sum(1 for r in conv_results if r.hallucinated_function_usage_detected)
-                
+                # Separate successfully-judged turns from unjudged ones (sampler
+                # error, or unparseable/empty response). Unjudged turns are NOT
+                # counted as verified: they're excluded from scoring and marked
+                # below so they can be re-evaluated on a second pass.
+                judged_results = [r for r in conv_results if not r.error]
+                num_judged = len(judged_results)
+
+                # Count hallucinations over judged turns only
+                import_hallucinations = sum(1 for r in judged_results if r.hallucinated_import_detected)
+                install_hallucinations = sum(1 for r in judged_results if r.hallucinated_install_detected)
+                function_hallucinations = sum(1 for r in judged_results if r.hallucinated_function_usage_detected)
+
                 total_hallucinations = import_hallucinations + install_hallucinations + function_hallucinations
-                turns_with_hallucinations = sum(1 for r in conv_results if r.has_hallucination)
-                
-                score = 1.0 - (turns_with_hallucinations / total_turns) if total_turns > 0 else 1.0
+                turns_with_hallucinations = sum(1 for r in judged_results if r.has_hallucination)
+
+                score = 1.0 - (turns_with_hallucinations / num_judged) if num_judged > 0 else 1.0
                 
                 # Build detailed reasoning with breakdown
                 reasoning_parts = [f"Evaluated {total_turns} turn{'s' if total_turns != 1 else ''}"]
@@ -1705,7 +1715,24 @@ class CodingDirectPipeline:
             for turn_result in conv_results:
                 turn_dict = turn_result.to_dict()
                 turn_number = turn_dict.get("turn_number", 0)
-                
+
+                # Unjudged turn (sampler error / unparseable response): mark it so
+                # a second pass can target it; do NOT emit a "verified" entry.
+                if turn_result.error:
+                    claim_evaluations.append({
+                        "claim_id": f"turn-{conv_id}-{turn_number}-unjudged",
+                        "conversation_id": conv_id,
+                        "turn_idx": turn_number,
+                        "turn_number": turn_number,
+                        "hallucination": "Unjudged",
+                        "judged": False,
+                        "error": turn_result.error,
+                        "claim": {"element_type": "unjudged"},
+                        "reason": f"Turn not judged: {turn_result.error}",
+                        "reasoning": "",
+                    })
+                    continue
+
                 # Expand hallucinated items into individual claim evaluations
                 # Each hallucinated item becomes a separate claim
                 has_any_hallucination = turn_result.has_hallucination
@@ -1800,6 +1827,10 @@ class CodingDirectPipeline:
             # Build details dict with both formats for compatibility
             details = {
                 "total_turns": total_turns,
+                # Turns that could not be judged (failed/throttled). Re-run a
+                # second pass to evaluate these. Empty list == fully judged.
+                "unjudged_turns": [r.turn_number for r in conv_results if r.error],
+                "unjudged_turn_count": sum(1 for r in conv_results if r.error),
                 "total_responses": total_responses,  # For report generator
                 "total_claims": len(claim_evaluations),  # For report generator
                 "import_hallucinations": import_hallucinations,
@@ -1833,20 +1864,71 @@ class CodingDirectPipeline:
         """Save evaluation results to file."""
         output_path = self._get_output_path()
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        logger.info(f"Saving results to: {output_path}")
-        
-        with open(output_path, "w", encoding="utf-8") as f:
+
+        # Write to a temp file in the same dir, then atomically replace, so an
+        # interrupt mid-write (esp. during a checkpoint) never corrupts the
+        # resumable output file.
+        tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
             for result in results:
                 record = {
                     "_type": "evaluation_result",
                     **asdict(result),
                 }
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
-        
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, output_path)
+
         logger.info(f"✓ Saved {len(results)} evaluation results")
         return output_path
-    
+
+    def _load_prior_results(self, path: Path):
+        """Load previously-judged turns from an existing output file (resume).
+
+        Returns (prior_results, judged_keys) where prior_results is a list of
+        DirectCodingResult for turns that were successfully judged, and
+        judged_keys is the set of (conversation_id, turn_number) for those turns.
+        Turns with an `error` (unjudged) are skipped so they get re-judged.
+        """
+        from .workers import DirectCodingResult
+
+        prior_results: List["DirectCodingResult"] = []
+        judged_keys: set = set()
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                details = rec.get("details", {})
+                for te in details.get("turn_evaluations", []):
+                    if te.get("error"):
+                        continue  # unjudged -> re-judge on this pass
+                    cid = te.get("conversation_id", rec.get("conversation_id", 0))
+                    tn = te.get("turn_number", 0)
+                    if (cid, tn) in judged_keys:
+                        continue
+                    prior_results.append(DirectCodingResult(
+                        conversation_id=cid,
+                        turn_number=tn,
+                        has_hallucination=te.get("has_hallucination", False),
+                        hallucinated_imports=te.get("hallucinated_imports", []),
+                        hallucinated_installs=te.get("hallucinated_installs", []),
+                        hallucinated_function_calls=te.get("hallucinated_function_calls", []),
+                        hallucinated_import_detected=te.get("hallucinated_import_detected", False),
+                        hallucinated_install_detected=te.get("hallucinated_install_detected", False),
+                        hallucinated_function_usage_detected=te.get("hallucinated_function_usage_detected", False),
+                        reasoning=te.get("reasoning", ""),
+                        error=te.get("error"),
+                        token_usage=te.get("token_usage", {}),
+                    ))
+                    judged_keys.add((cid, tn))
+        return prior_results, judged_keys
+
     async def run(self) -> Path:
         """Run the direct coding pipeline."""
         from .workers import DirectCodingJudgeWorker, TurnItem, DirectCodingResult
@@ -1875,20 +1957,49 @@ class CodingDirectPipeline:
         if not turns_data:
             logger.warning("No assistant turns found to evaluate")
             return self._save_results([])
-        
+
+        # --- Resume: if a prior output exists, keep already-judged turns and
+        # re-judge only the unjudged/missing ones, then merge. Delete the output
+        # file to force a full fresh run. ---
+        prior_results: List[DirectCodingResult] = []
+        existing_output = self._get_output_path()
+        if existing_output.exists():
+            prior_results, judged_keys = self._load_prior_results(existing_output)
+            before = len(turns_data)
+            turns_data = [t for t in turns_data if (t[0], t[1]) not in judged_keys]
+            logger.info(
+                f"Resume: {len(judged_keys)} turn(s) already judged in {existing_output.name}; "
+                f"re-judging {len(turns_data)}/{before} unjudged/missing turn(s)"
+            )
+            if not turns_data:
+                logger.info("Resume: nothing left to judge — rebuilding output from existing results")
+                return self._save_results(self._build_evaluation_results(prior_results))
+
         # Create sampler
         sampler = get_sampler(self.judge_model or "gpt-5-mini-medium-websearch")
-        
+
+        # Accumulate finished turns and checkpoint periodically so the run is
+        # always resumable (an interrupt loses at most checkpoint_interval turns).
+        self._results_accumulator: List[DirectCodingResult] = []
+
+        async def _checkpoint():
+            merged = prior_results + list(self._results_accumulator)
+            self._save_results(self._build_evaluation_results(merged))
+            logger.info(f"  ↳ checkpoint: persisted {len(merged)} judged turn(s)")
+
         # Create queues
         input_queue: MonitoredQueue[TurnItem] = MonitoredQueue("turns")
         results_queue: MonitoredQueue[DirectCodingResult] = MonitoredQueue("results")
-        
+
         # Create worker
         judge = DirectCodingJudgeWorker(
             input_queue=input_queue,
             output_queue=results_queue,
             sampler=sampler,
             num_workers=self.worker_config.num_judges,
+            result_sink=self._results_accumulator,
+            checkpoint_interval=self.checkpoint_interval,
+            checkpoint_cb=_checkpoint,
         )
         
         # Create pipeline
@@ -1916,25 +2027,23 @@ class CodingDirectPipeline:
         logger.info(f"Starting pipeline with {len(turns_data)} turns...")
         
         try:
-            raw_results = await pipeline.run(
+            await pipeline.run(
                 input_queue=input_queue,
                 total_items=len(turns_data),
                 monitor_interval=self.monitor_interval,
             )
         except KeyboardInterrupt:
-            logger.warning("\nInterrupted by user")
-            raw_results = []
-        
-        # Convert raw results to DirectCodingResult
-        all_results: List[DirectCodingResult] = []
-        for result in raw_results:
-            if isinstance(result, DirectCodingResult):
-                all_results.append(result)
-            elif hasattr(result, 'item'):
-                all_results.append(result.item)
-        
-        logger.info(f"\n✓ Collected {len(all_results)} results")
-        
+            logger.warning("\nInterrupted by user — saving turns judged so far")
+
+        # Use the accumulator as the source of truth (every finished turn was
+        # appended to it), so partial progress survives an interrupt.
+        new_results = list(self._results_accumulator)
+        new_count = len(new_results)
+        # Merge previously-judged turns back in (resume)
+        all_results = prior_results + new_results
+        logger.info(f"\n✓ Collected {len(all_results)} results "
+                    f"({len(prior_results)} from prior run, {new_count} newly judged)")
+
         # Build evaluation results
         eval_results = self._build_evaluation_results(all_results)
         
