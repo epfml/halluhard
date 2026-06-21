@@ -18,18 +18,22 @@ class DeepSeekSampler(SamplerBase):
         self,
         model: str = "deepseek-chat",
         system_message: Optional[str] = None,
-        temperature: float = 0.0,
+        temperature: float = 1.0,
+        thinking: bool = False,
+        reasoning_effort: Optional[str] = None,
         max_retries: int = 5,
     ):
         self.api_key_name = "DEEPSEEK_API_KEY"
         assert os.environ.get("DEEPSEEK_API_KEY"), "Please set DEEPSEEK_API_KEY"
         self.client = AsyncOpenAI(
-            base_url="https://api.deepseek.com/v1",
+            base_url="https://api.deepseek.com",
             api_key=os.getenv("DEEPSEEK_API_KEY")
         )
         self.model = model
         self.system_message = system_message
         self.temperature = temperature
+        self.thinking = thinking
+        self.reasoning_effort = reasoning_effort
         self.max_retries = max_retries
         
 
@@ -46,11 +50,17 @@ class DeepSeekSampler(SamplerBase):
 
         while True:
             try:
-                response = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=msgs,
-                    temperature=self.temperature,
-                )
+                kwargs = {
+                    "model": self.model,
+                    "messages": msgs,
+                }
+                if self.thinking:
+                    kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+                    if self.reasoning_effort:
+                        kwargs["reasoning_effort"] = self.reasoning_effort
+                else:
+                    kwargs["temperature"] = self.temperature
+                response = await self.client.chat.completions.create(**kwargs)
                 
                 content = response.choices[0].message.content or ""
                 return SamplerResponse(

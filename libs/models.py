@@ -326,6 +326,11 @@ MODEL_REGISTRY = {
         "reasoning_effort": "high",
         "websearch": True,
     },
+    "gpt-5.5-medium": {
+        "model": "gpt-5.5",
+        "reasoning_effort": "medium",
+        "websearch": False,
+    },
     "gpt-5.1": {
         "model": "gpt-5.1-chat-latest",
         "reasoning_effort": None,
@@ -479,6 +484,15 @@ MODEL_REGISTRY = {
         "temperature": 1.0,
         "max_tokens": 65536,
     },
+    "deepseek-v4-pro": {
+        "model": "deepseek-v4-pro",
+        "thinking": True,
+        "reasoning_effort": "high",
+    },
+    "deepseek-v4-pro-no-thinking": {
+        "model": "deepseek-v4-pro",
+        "temperature": 0.0,
+    },
     # Anthropic variants
     "claude-sonnet-4-5": {
         "model": "claude-sonnet-4-5",
@@ -557,7 +571,8 @@ MODEL_REGISTRY = {
     # Claude Opus 4.6 variants
     "claude-opus-4-6": {
         "model": "claude-opus-4-6",
-        "temperature": 0.0,
+        "temperature": 1.0,
+        "thinking": True,
     },
     "claude-opus-4-6-temp-1": {
         "model": "claude-opus-4-6",
@@ -613,6 +628,11 @@ MODEL_REGISTRY = {
         "temperature": 0.0,
         "effort": "max",
         "websearch": True,
+    },
+    "claude-opus-4-7": {
+        "model": "claude-opus-4-7",
+        "temperature": 1.0,
+        "thinking": True,
     },
     # Shorthand "Claude 4.6" aliases (opus = flagship; sonnet = faster)
     "claude-4-6": {
@@ -813,7 +833,30 @@ MODEL_REGISTRY = {
         "thinking_level": "high",
         "websearch": True,
     },
-    # OpenRouter – GLM-5 /4.7 (Zhipu via z-ai, https://openrouter.ai/models)
+    # OpenRouter – GLM-5.2 / 5 / 4.7 (Zhipu via z-ai, https://openrouter.ai/models)
+    # GLM-5.2: https://openrouter.ai/z-ai/glm-5.2
+    "glm-5.2": {
+        "model": "z-ai/glm-5.2",
+        "temperature": 1.0,
+        "thinking": False,
+    },
+    "glm-5.2-thinking": {
+        "model": "z-ai/glm-5.2",
+        "temperature": 1.0,
+        "thinking": True,
+    },
+    "glm-5.2-websearch": {
+        "model": "z-ai/glm-5.2",
+        "temperature": 1.0,
+        "thinking": False,
+        "websearch": True,
+    },
+    "glm-5.2-thinking-websearch": {
+        "model": "z-ai/glm-5.2",
+        "temperature": 1.0,
+        "thinking": True,
+        "websearch": True,
+    },
     "glm-5": {
         "model": "z-ai/glm-5",
         "temperature": 0.0,

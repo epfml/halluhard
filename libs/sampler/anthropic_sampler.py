@@ -39,8 +39,8 @@ class AnthropicSampler(SamplerBase):
     # Beta header for effort parameter (Claude Opus 4.5 only - GA on Opus 4.6+)
     EFFORT_BETA = "effort-2025-11-24"
 
-    def _is_opus_46_or_newer(self) -> bool:
-        """Check if the model is Claude Opus 4.6 or newer.
+    def _is_opus_46(self) -> bool:
+        """Check if the model is Claude Opus 4.6.
         
         Opus 4.6 has effort parameter GA (no beta header needed) and supports 'max' effort level.
         """
@@ -48,16 +48,25 @@ class AnthropicSampler(SamplerBase):
         # Match claude-opus-4-6, claude-opus-4.6, or any version after 4.6
         return "opus-4-6" in model_lower or "opus-4.6" in model_lower
 
+    def _is_opus_47(self) -> bool:
+        """Check if the model is Claude Opus 4.7.
+        
+        Opus 4.7 supports adaptive thinking mode.
+        """
+        model_lower = self.model.lower()
+        return "opus-4-7" in model_lower or "opus-4.7" in model_lower
+
     def __init__(
         self,
         model: str = "claude-sonnet-4-5",
         system_message: Optional[str] = None,
-        temperature: float = 0.0,
-        max_tokens: int = 4048,
+        temperature: float = 1.0,
+        max_tokens: int = 10000,
         max_retries: int = 5,
         effort: Optional[str] = None,
         websearch: bool = False,
         max_web_searches: int = 5,
+        thinking: bool = False,
     ):
         """
         Initialize the Anthropic sampler.
@@ -75,6 +84,8 @@ class AnthropicSampler(SamplerBase):
             websearch: Enable web search tool for real-time information.
                       See: https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
             max_web_searches: Maximum number of web searches per request (default 5)
+            thinking: Enable adaptive thinking mode (Opus 4.7 only). Allows the model to think through problems.
+                     See: https://platform.claude.com/docs/en/build-with-claude/thinking
         """
         self.api_key_name = "ANTHROPIC_API_KEY"
         assert os.environ.get("ANTHROPIC_API_KEY"), "Please set ANTHROPIC_API_KEY"
@@ -87,13 +98,22 @@ class AnthropicSampler(SamplerBase):
         self.effort = effort
         self.websearch = websearch
         self.max_web_searches = max_web_searches
+        self.thinking = thinking
         
         # Validate effort parameter
         valid_effort_levels = ["low", "medium", "high"]
-        if self._is_opus_46_or_newer():
+        if self._is_opus_46():
             valid_effort_levels.append("max")
         if effort is not None and effort not in valid_effort_levels:
             raise ValueError(f"effort must be one of {valid_effort_levels}, got: {effort}")
+        
+        # Validate thinking parameter (only for Opus 4.7)
+        if thinking and not self._is_opus_47():
+            raise ValueError("thinking mode is only supported for Claude Opus 4.7")
+        
+        # Validate temperature for thinking mode (must be 1.0)
+        if thinking and temperature != 1.0:
+            raise ValueError(f"temperature must be 1.0 when thinking is enabled, got: {temperature}")
         
         # Build a descriptive tag for logging
         tag_parts = [model]
@@ -101,10 +121,39 @@ class AnthropicSampler(SamplerBase):
             tag_parts.append(f"effort={effort}")
         if websearch:
             tag_parts.append("websearch")
+        if thinking:
+            tag_parts.append("thinking")
         self._log_tag = f"{tag_parts[0]}[{','.join(tag_parts[1:])}]" if len(tag_parts) > 1 else model
 
     def _pack_message(self, role: str, content: Any) -> dict[str, Any]:
         return {"role": str(role), "content": content}
+
+    async def _collect_streamed_response(self, stream) -> tuple[str, Any]:
+        """Collect a streamed response from the API.
+        
+        Args:
+            stream: AsyncContextManager for the message stream
+            
+        Returns:
+            Tuple of (response_text, usage_data)
+        """
+        content_text = ""
+        usage_data = None
+        
+        async with stream as s:
+            async for event in s:
+                # Collect text from content_block_delta events
+                if event.type == "content_block_delta":
+                    delta = event.delta
+                    if hasattr(delta, "text"):
+                        content_text += delta.text
+                
+                # Capture usage information from message_delta event
+                elif event.type == "message_delta":
+                    if hasattr(event, "usage"):
+                        usage_data = event.usage
+        
+        return content_text, usage_data
 
     def _extract_token_usage(self, response: Any) -> dict[str, int]:
         """Extract token usage from Anthropic API response.
@@ -196,18 +245,44 @@ class AnthropicSampler(SamplerBase):
                         "max_uses": self.max_web_searches,
                     }]
                 
-                # Handle effort parameter
+                # Handle effort and thinking parameters
                 if self.effort is not None:
                     kwargs["output_config"] = {"effort": self.effort}
-                    if self._is_opus_46_or_newer():
-                        # Opus 4.6+: effort is GA, no beta header needed
-                        response = await self.client.messages.create(**kwargs)
+                
+                if self.thinking:
+                    # Opus 4.7: adaptive thinking mode
+                    kwargs["thinking"] = {"type": "adaptive"}
+                
+                # Determine which API to use and whether to stream
+                # Use streaming for thinking mode (Opus 4.7) since it may exceed 10 minute timeout
+                use_streaming = self.thinking
+                
+                if self.effort is not None and not self._is_opus_46():
+                    # Opus 4.5: use beta API with effort header for effort parameter
+                    kwargs["betas"] = [self.EFFORT_BETA]
+                    if use_streaming:
+                        stream = self.client.beta.messages.stream(**kwargs)
+                        content, usage_data = await self._collect_streamed_response(stream)
+                        # Create a mock response object with collected data
+                        response = type('obj', (object,), {
+                            'content': [type('obj', (object,), {'text': content})()],
+                            'usage': usage_data,
+                            'stop_reason': 'end_turn',
+                        })()
                     else:
-                        # Opus 4.5: use beta API with effort header
-                        kwargs["betas"] = [self.EFFORT_BETA]
                         response = await self.client.beta.messages.create(**kwargs)
                 else:
-                    response = await self.client.messages.create(**kwargs)
+                    if use_streaming:
+                        stream = self.client.messages.stream(**kwargs)
+                        content, usage_data = await self._collect_streamed_response(stream)
+                        # Create a mock response object with collected data
+                        response = type('obj', (object,), {
+                            'content': [type('obj', (object,), {'text': content})()],
+                            'usage': usage_data,
+                            'stop_reason': 'end_turn',
+                        })()
+                    else:
+                        response = await self.client.messages.create(**kwargs)
                 
                 # Extract text from response content
                 # For web search responses, we need to handle multiple block types
