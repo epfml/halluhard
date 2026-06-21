@@ -75,8 +75,28 @@ async def close_pdf_session() -> None:
         _logger.debug("Closed shared aiohttp session for PDF downloads")
 
 
+# Embeddings can run against OpenAI directly or via the NVIDIA inference gateway.
+# When OPENAI_API_KEY is set we use OpenAI as before; otherwise we fall back to the
+# gateway (NVIDIA_INFERENCE_API_KEY), which serves the same text-embedding-3-small
+# model (1536-dim) under a catalog label.
+NVIDIA_INFERENCE_BASE_URL = "https://inference-api.nvidia.com/v1"
+_NVIDIA_EMBEDDING_MODEL = "us/azure/openai/eccn-text-embedding-3-small"
+_OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
+
+
+def get_embedding_model() -> str:
+    """Default embedding model id, depending on which backend is configured."""
+    if os.getenv("OPENAI_API_KEY"):
+        return _OPENAI_EMBEDDING_MODEL
+    return _NVIDIA_EMBEDDING_MODEL
+
+
 def get_openai_client() -> AsyncOpenAI:
-    """Get or create the shared AsyncOpenAI client for embeddings."""
+    """Get or create the shared AsyncOpenAI client for embeddings.
+
+    Uses OpenAI when OPENAI_API_KEY is set; otherwise routes to the NVIDIA
+    inference gateway via NVIDIA_INFERENCE_API_KEY.
+    """
     global _openai_client
     if _openai_client is None:
         # Configure httpx with bounded connection limits to prevent connection timeouts
@@ -90,12 +110,24 @@ def get_openai_client() -> AsyncOpenAI:
             http1=True,
             http2=False,
         )
-        _openai_client = AsyncOpenAI(
-            timeout=120.0,  # 2 minute timeout for all requests
-            max_retries=0,  # Disable built-in retries, we handle them with jitter
-            http_client=http_client,
-        )
-        _logger.debug("Created shared AsyncOpenAI client for embeddings (limit=50, http1=True)")
+        if os.getenv("OPENAI_API_KEY"):
+            _openai_client = AsyncOpenAI(
+                timeout=120.0,  # 2 minute timeout for all requests
+                max_retries=0,  # Disable built-in retries, we handle them with jitter
+                http_client=http_client,
+            )
+            _logger.debug("Created shared AsyncOpenAI client for embeddings (OpenAI, limit=50, http1=True)")
+        else:
+            nvidia_key = os.getenv("NVIDIA_INFERENCE_API_KEY")
+            assert nvidia_key, "Set OPENAI_API_KEY or NVIDIA_INFERENCE_API_KEY for embeddings"
+            _openai_client = AsyncOpenAI(
+                base_url=NVIDIA_INFERENCE_BASE_URL,
+                api_key=nvidia_key,
+                timeout=120.0,
+                max_retries=0,  # Disable built-in retries, we handle them with jitter
+                http_client=http_client,
+            )
+            _logger.debug("Created shared embeddings client (NVIDIA gateway, limit=50, http1=True)")
     return _openai_client
 
 
@@ -163,7 +195,7 @@ async def extract_relevant_sentences(
     claim: str,
     max_output_words: int,
     embedding_semaphore: asyncio.Semaphore,
-    embedding_model: str = "text-embedding-3-small",
+    embedding_model: str | None = None,
     block_size: int = 10000,
     overlap: int = 200,
     deduplication_threshold: float = 0.85,
@@ -191,7 +223,9 @@ async def extract_relevant_sentences(
         return "", 0, 0
     
     openai_client = get_openai_client()
-    
+    if embedding_model is None:
+        embedding_model = get_embedding_model()
+
     # Split each source's content into blocks and track source metadata
     all_blocks = []
     block_sources = []  # Track (source_idx, block_text) for each block

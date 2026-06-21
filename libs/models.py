@@ -11,6 +11,11 @@ from libs.sampler.kimi_sampler import KimiSampler
 from libs.sampler.gemini_sampler import GeminiSampler
 from libs.sampler.grok_sampler import GrokSampler
 from libs.sampler.openrouter_sampler import OpenRouterSampler
+from libs.sampler.nemotron_sampler import NemotronSampler
+from libs.sampler.nvidia_inference_sampler import (
+    NvidiaInferenceSampler,
+    NvidiaInferenceResponsesSampler,
+)
 
 
 def get_sampler(model_name: str):
@@ -38,6 +43,8 @@ def get_sampler(model_name: str):
         return AnthropicSampler(**config)
     elif model_name.startswith("kimi_openrouter-"):
         return OpenRouterSampler(**config)
+    elif model_name.startswith("kimi_openrouter-"):
+        return OpenRouterSampler(**config)
     elif model_name.startswith("kimi-"):
         return KimiSampler(**config)
     elif model_name.startswith("gemini-"):
@@ -47,6 +54,14 @@ def get_sampler(model_name: str):
         return OpenRouterSampler(**config)
     elif model_name.startswith("grok-"):
         return GrokSampler(**config)
+    elif model_name.startswith("nemotron-"):
+        return NemotronSampler(**config)
+    elif model_name.startswith("nvinfer-"):
+        # Web-grounded nvinfer models must use the Responses API — the gateway
+        # only exposes the web_search tool there, not on chat completions.
+        if config.get("websearch"):
+            return NvidiaInferenceResponsesSampler(**config)
+        return NvidiaInferenceSampler(**config)
     else:
         return ResponsesSampler(**config)
 
@@ -423,6 +438,47 @@ MODEL_REGISTRY = {
         "model": "deepseek-reasoner",
         "temperature": 1.0,
     },
+    # NVIDIA Nemotron variants (via NGC / integrate.api.nvidia.com, NGC_API_KEY)
+    "nemotron-3-nano-omni-30b-a3b-reasoning": {
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "max_tokens": 65536,
+        "enable_thinking": True,
+        "reasoning_budget": 16384,
+    },
+    "nemotron-3-nano-omni-30b-a3b-reasoning-nothink": {
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "max_tokens": 65536,
+        "enable_thinking": False,
+    },
+    # NVIDIA internal inference gateway (inference.nvidia.com via
+    # https://inference-api.nvidia.com/v1, NVIDIA_INFERENCE_API_KEY).
+    # Model ids are the catalog "label" strings.
+    # gpt-5-mini on the gateway is a reasoning model: reasoning tokens count
+    # against max_tokens. 8192 is too small for long inputs (e.g. claim
+    # extraction on multi-thousand-token answers) — reasoning consumes the whole
+    # budget and the model returns empty content. Keep this generous.
+    "nvinfer-gpt-5-mini": {
+        "model": "us/azure/openai/eccn-gpt-5-mini",
+        "max_tokens": 32768,
+    },
+    # Web-grounded variant: routes through the Responses API so the gateway's
+    # web_search tool is available (chat completions can't do web search).
+    "nvinfer-gpt-5-mini-websearch": {
+        "model": "us/azure/openai/eccn-gpt-5-mini",
+        "max_tokens": 32768,
+        "websearch": True,
+    },
+    # Nemotron 3 Ultra via the internal inference gateway. Reasoning model —
+    # thinking tokens are consumed server-side, so keep max_tokens generous.
+    "nvinfer-nemotron-3-ultra": {
+        "model": "nvidia/nvidia/eccn-nemotron-3-ultra",
+        "temperature": 1.0,
+        "max_tokens": 65536,
+    },
     # Anthropic variants
     "claude-sonnet-4-5": {
         "model": "claude-sonnet-4-5",
@@ -767,6 +823,18 @@ MODEL_REGISTRY = {
         "model": "z-ai/glm-5",
         "temperature": 0.0,
         "thinking": True,
+    },
+    "glm-5-websearch": {
+        "model": "z-ai/glm-5",
+        "temperature": 0.0,
+        "thinking": False,
+        "websearch": True,
+    },
+    "glm-5-thinking-websearch": {
+        "model": "z-ai/glm-5",
+        "temperature": 0.0,
+        "thinking": True,
+        "websearch": True,
     },
     "glm-5-websearch": {
         "model": "z-ai/glm-5",

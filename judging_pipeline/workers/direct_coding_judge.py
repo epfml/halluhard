@@ -7,6 +7,7 @@ without extracting individual claims first.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass, field
@@ -151,6 +152,9 @@ class DirectCodingJudgeWorker(Worker[TurnItem, DirectCodingResult]):
         sampler: SamplerBase,
         num_workers: int = 10,
         rate_limit_delay: float = 0.0,
+        result_sink: list | None = None,
+        checkpoint_interval: int = 0,
+        checkpoint_cb=None,
     ):
         super().__init__(
             input_queue=input_queue,
@@ -161,6 +165,25 @@ class DirectCodingJudgeWorker(Worker[TurnItem, DirectCodingResult]):
         )
         self.sampler = sampler
         self.system_prompt = DIRECT_CODING_SYSTEM_PROMPT
+        # Periodic checkpointing: each result is appended to result_sink; every
+        # checkpoint_interval results, checkpoint_cb() is awaited to persist them.
+        self.result_sink = result_sink
+        self.checkpoint_interval = checkpoint_interval
+        self.checkpoint_cb = checkpoint_cb
+        self._ckpt_lock = asyncio.Lock()
+        self._since_ckpt = 0
+
+    async def _record_result(self, result: "DirectCodingResult") -> None:
+        """Accumulate a finished result and checkpoint every N results."""
+        if self.result_sink is None:
+            return
+        async with self._ckpt_lock:
+            self.result_sink.append(result)
+            if self.checkpoint_interval and self.checkpoint_cb:
+                self._since_ckpt += 1
+                if self._since_ckpt >= self.checkpoint_interval:
+                    self._since_ckpt = 0
+                    await self.checkpoint_cb()
     
     async def process(
         self,
@@ -195,7 +218,7 @@ against official documentation. Report any hallucinations you find."""
             result_data = self._parse_response(raw_text)
             
             # Build result
-            return DirectCodingResult(
+            result = DirectCodingResult(
                 conversation_id=item.conversation_id,
                 turn_number=item.turn_number,
                 has_hallucination=result_data.get("has_hallucination", False),
@@ -209,14 +232,18 @@ against official documentation. Report any hallucinations you find."""
                 raw_response=raw_text,
                 token_usage=response.token_usage if hasattr(response, "token_usage") else {},
             )
-            
+            await self._record_result(result)
+            return result
+
         except Exception as e:
             logger.error(f"Error judging turn {item.turn_number} in conv {item.conversation_id}: {e}")
-            return DirectCodingResult(
+            result = DirectCodingResult(
                 conversation_id=item.conversation_id,
                 turn_number=item.turn_number,
                 error=str(e),
             )
+            await self._record_result(result)
+            return result
     
     def _parse_response(self, text: str) -> Dict[str, Any]:
         """Parse JSON response from LLM."""
@@ -247,13 +274,9 @@ against official documentation. Report any hallucinations you find."""
         except json.JSONDecodeError:
             pass
         
-        # Fallback: return empty result
+        # No parseable JSON (e.g. empty/garbled output from a throttled or
+        # truncated response). Raise so process() marks the turn unjudged rather
+        # than silently recording it as "no hallucination".
         logger.warning(f"Failed to parse JSON response: {text[:200]}...")
-        return {
-            "has_hallucination": False,
-            "hallucinated_imports": [],
-            "hallucinated_installs": [],
-            "hallucinated_function_calls": [],
-            "reasoning": f"Failed to parse response: {text[:500]}"
-        }
+        raise ValueError(f"Could not parse judge response as JSON: {text[:200]!r}")
 
