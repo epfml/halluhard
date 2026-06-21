@@ -11,6 +11,7 @@ from libs.sampler.kimi_sampler import KimiSampler
 from libs.sampler.gemini_sampler import GeminiSampler
 from libs.sampler.grok_sampler import GrokSampler
 from libs.sampler.openrouter_sampler import OpenRouterSampler
+from libs.sampler.glm_sampler import GlmSampler
 from libs.sampler.nemotron_sampler import NemotronSampler
 from libs.sampler.nvidia_inference_sampler import (
     NvidiaInferenceSampler,
@@ -49,6 +50,9 @@ def get_sampler(model_name: str):
         return KimiSampler(**config)
     elif model_name.startswith("gemini-"):
         return GeminiSampler(**config)
+    elif model_name.startswith("glm-5.2"):
+        # GLM-5.2 goes through the official Z.AI API via GlmSampler.
+        return GlmSampler(**config)
     elif model_name.startswith("glm-"):
         # Can be either Z.AI or OpenRouter sampler. We use OpenRouter sampler for more concurrency.
         return OpenRouterSampler(**config)
@@ -833,30 +837,22 @@ MODEL_REGISTRY = {
         "thinking_level": "high",
         "websearch": True,
     },
-    # OpenRouter – GLM-5.2 / 5 / 4.7 (Zhipu via z-ai, https://openrouter.ai/models)
-    # GLM-5.2: https://openrouter.ai/z-ai/glm-5.2
+    # Z.AI official API – GLM-5.2 (via GlmSampler, https://docs.z.ai/guides/llm/glm-5.2)
     "glm-5.2": {
-        "model": "z-ai/glm-5.2",
+        "model": "glm-5.2",
         "temperature": 1.0,
-        "thinking": False,
+        "thinking_type": "adaptive",
+        "effort": "max",
+        "max_tokens": 32768,
     },
     "glm-5.2-thinking": {
-        "model": "z-ai/glm-5.2",
+        "model": "glm-5.2",
         "temperature": 1.0,
-        "thinking": True,
+        "thinking_type": "enabled",
+        "effort": "max",
+        "max_tokens": 32768,
     },
-    "glm-5.2-websearch": {
-        "model": "z-ai/glm-5.2",
-        "temperature": 1.0,
-        "thinking": False,
-        "websearch": True,
-    },
-    "glm-5.2-thinking-websearch": {
-        "model": "z-ai/glm-5.2",
-        "temperature": 1.0,
-        "thinking": True,
-        "websearch": True,
-    },
+    # OpenRouter – GLM-5 / 4.7 (Zhipu via z-ai, https://openrouter.ai/models)
     "glm-5": {
         "model": "z-ai/glm-5",
         "temperature": 0.0,
