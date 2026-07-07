@@ -24,6 +24,7 @@ Please output JSON with:
     - content (faithful snippet from user text)
     - reference_name (name/citation of the legal authority)
     - holding_or_description (holding/description from text, or empty string if not provided)
+    - claimed_url (URL/DOI/permalink if present in user text, empty string if none)
 
 Follow the system prompt rules."""
 
@@ -43,10 +44,14 @@ Follow the system prompt rules."""
         ref_name = claim.data.get("reference_name", "Unknown")
         content = claim.data.get("content", "")
         holding = claim.data.get("holding_or_description", "")
-        
+        claimed_url = claim.data.get("claimed_url", "")
+
         textual_claim = f"Type: {type_val}\n"
         textual_claim += f"Reference: {ref_name}\n"
-            
+
+        if claimed_url:
+            textual_claim += f"URL/DOI: {claimed_url}\n"
+
         if holding:
             textual_claim += f"Holding/Description: {holding}\n"
         else:
@@ -62,10 +67,14 @@ Follow the system prompt rules."""
         ref_name = claim.data.get("reference_name", "Unknown")
         content = claim.data.get("content", "")
         holding = claim.data.get("holding_or_description", "")
-        
+        claimed_url = claim.data.get("claimed_url", "")
+
         textual_claim = f"Type: {type_val}\n"
         textual_claim += f"Reference: {ref_name}\n"
-            
+
+        if claimed_url:
+            textual_claim += f"URL/DOI: {claimed_url}\n"
+
         if holding:
             textual_claim += f"Holding/Description: {holding}\n"
         else:

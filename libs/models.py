@@ -516,6 +516,11 @@ MODEL_REGISTRY = {
         "temperature": 0.0,
         "websearch": True,
     },
+    # Sonnet 5 deprecates the temperature parameter (API 400s if it is sent).
+    "claude-sonnet-5": {
+        "model": "claude-sonnet-5",
+        "temperature": None,
+    },
     "claude-haiku-4-5": {
         "model": "claude-haiku-4-5",
         "temperature": 0.0,
@@ -637,6 +642,16 @@ MODEL_REGISTRY = {
         "model": "claude-opus-4-7",
         "temperature": 1.0,
         "thinking": True,
+    },
+    # Claude Fable 5 (also deprecates the temperature parameter)
+    "claude-fable-5": {
+        "model": "claude-fable-5",
+        "temperature": None,
+    },
+    "claude-fable-5-websearch": {
+        "model": "claude-fable-5",
+        "temperature": None,
+        "websearch": True,
     },
     # Shorthand "Claude 4.6" aliases (opus = flagship; sonnet = faster)
     "claude-4-6": {

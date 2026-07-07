@@ -225,9 +225,13 @@ class AnthropicSampler(SamplerBase):
                 kwargs = {
                     "model": self.model,
                     "messages": msgs,
-                    "temperature": self.temperature,
                 }
-                
+
+                # Only include temperature if set. Newer models (e.g. Sonnet 5,
+                # Fable 5) deprecate the temperature parameter and 400 if it's sent.
+                if self.temperature is not None:
+                    kwargs["temperature"] = self.temperature
+
                 # Only include max_tokens if explicitly set
                 if self.max_tokens is not None:
                     kwargs["max_tokens"] = self.max_tokens
