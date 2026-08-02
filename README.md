@@ -6,13 +6,7 @@ A framework for evaluating hallucinations in multi-turn conversations across cha
 
 Check out our website for the updates on newly released models: https://halluhard.com/
 
-[Update: Apr 30, 2026] Added GPT-5.5-thinking, Claude-Opus-4.7, and DeepSeek-V4-Pro
-
-[Update: Apr 23, 2026] Added Kimi-K2.6-thinking
-
-[Update: Apr 02, 2026] Added websearch variants of two open-weight models: GLM-5-thinking-WS and Kimi-K2.5-WS
-
-[Update: Feb 12, 2026] We’ve added the following models to our leaderboard: Kimi-K2.5-thinking (released Jan 29, 2026), GLM-5-thinking (released Feb 11, 2026), Grok-4-thinking, and Grok-4.1-thinking-fast.
+See [CHANGELOG.md](CHANGELOG.md) for the history of model additions and benchmark updates.
 
 ## Preparation
 

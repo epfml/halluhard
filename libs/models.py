@@ -11,6 +11,7 @@ from libs.sampler.kimi_sampler import KimiSampler
 from libs.sampler.gemini_sampler import GeminiSampler
 from libs.sampler.grok_sampler import GrokSampler
 from libs.sampler.openrouter_sampler import OpenRouterSampler
+from libs.sampler.glm_sampler import GlmSampler
 from libs.sampler.nemotron_sampler import NemotronSampler
 from libs.sampler.nvidia_inference_sampler import (
     NvidiaInferenceSampler,
@@ -49,6 +50,9 @@ def get_sampler(model_name: str):
         return KimiSampler(**config)
     elif model_name.startswith("gemini-"):
         return GeminiSampler(**config)
+    elif model_name.startswith("glm-5.2"):
+        # GLM-5.2 goes through the official Z.AI API via GlmSampler.
+        return GlmSampler(**config)
     elif model_name.startswith("glm-"):
         # Can be either Z.AI or OpenRouter sampler. We use OpenRouter sampler for more concurrency.
         return OpenRouterSampler(**config)
@@ -326,6 +330,11 @@ MODEL_REGISTRY = {
         "reasoning_effort": "high",
         "websearch": True,
     },
+    "gpt-5.5-medium": {
+        "model": "gpt-5.5",
+        "reasoning_effort": "medium",
+        "websearch": False,
+    },
     "gpt-5.1": {
         "model": "gpt-5.1-chat-latest",
         "reasoning_effort": None,
@@ -479,6 +488,15 @@ MODEL_REGISTRY = {
         "temperature": 1.0,
         "max_tokens": 65536,
     },
+    "deepseek-v4-pro": {
+        "model": "deepseek-v4-pro",
+        "thinking": True,
+        "reasoning_effort": "high",
+    },
+    "deepseek-v4-pro-no-thinking": {
+        "model": "deepseek-v4-pro",
+        "temperature": 0.0,
+    },
     # Anthropic variants
     "claude-sonnet-4-5": {
         "model": "claude-sonnet-4-5",
@@ -497,6 +515,11 @@ MODEL_REGISTRY = {
         "model": "claude-sonnet-4-6",
         "temperature": 0.0,
         "websearch": True,
+    },
+    # Sonnet 5 deprecates the temperature parameter (API 400s if it is sent).
+    "claude-sonnet-5": {
+        "model": "claude-sonnet-5",
+        "temperature": None,
     },
     "claude-haiku-4-5": {
         "model": "claude-haiku-4-5",
@@ -557,7 +580,8 @@ MODEL_REGISTRY = {
     # Claude Opus 4.6 variants
     "claude-opus-4-6": {
         "model": "claude-opus-4-6",
-        "temperature": 0.0,
+        "temperature": 1.0,
+        "thinking": True,
     },
     "claude-opus-4-6-temp-1": {
         "model": "claude-opus-4-6",
@@ -612,6 +636,21 @@ MODEL_REGISTRY = {
         "model": "claude-opus-4-6",
         "temperature": 0.0,
         "effort": "max",
+        "websearch": True,
+    },
+    "claude-opus-4-7": {
+        "model": "claude-opus-4-7",
+        "temperature": 1.0,
+        "thinking": True,
+    },
+    # Claude Fable 5 (also deprecates the temperature parameter)
+    "claude-fable-5": {
+        "model": "claude-fable-5",
+        "temperature": None,
+    },
+    "claude-fable-5-websearch": {
+        "model": "claude-fable-5",
+        "temperature": None,
         "websearch": True,
     },
     # Shorthand "Claude 4.6" aliases (opus = flagship; sonnet = faster)
@@ -813,7 +852,22 @@ MODEL_REGISTRY = {
         "thinking_level": "high",
         "websearch": True,
     },
-    # OpenRouter – GLM-5 /4.7 (Zhipu via z-ai, https://openrouter.ai/models)
+    # Z.AI official API – GLM-5.2 (via GlmSampler, https://docs.z.ai/guides/llm/glm-5.2)
+    "glm-5.2": {
+        "model": "glm-5.2",
+        "temperature": 1.0,
+        "thinking_type": "adaptive",
+        "effort": "max",
+        "max_tokens": 32768,
+    },
+    "glm-5.2-thinking": {
+        "model": "glm-5.2",
+        "temperature": 1.0,
+        "thinking_type": "enabled",
+        "effort": "max",
+        "max_tokens": 32768,
+    },
+    # OpenRouter – GLM-5 / 4.7 (Zhipu via z-ai, https://openrouter.ai/models)
     "glm-5": {
         "model": "z-ai/glm-5",
         "temperature": 0.0,
