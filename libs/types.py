@@ -140,7 +140,8 @@ class UsageStats:
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
-    cached_tokens: int = 0
+    cached_tokens: int = 0          # prefix read from cache (billed ~0.1x)
+    cache_creation_tokens: int = 0  # prefix written to cache (Anthropic, ~1.25x)
     reasoning_tokens: int = 0
     
     # Optional: customize field display names for print_summary
@@ -212,6 +213,7 @@ class SamplerResponse:
         "output_tokens": 0,
         "total_tokens": 0,
         "cached_tokens": 0,
+        "cache_creation_tokens": 0,
         "reasoning_tokens": 0,
     })
 

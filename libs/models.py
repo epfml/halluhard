@@ -326,6 +326,75 @@ MODEL_REGISTRY = {
         "reasoning_effort": "high",
         "websearch": True,
     },
+    # =========================================================================
+    # GPT-6 Astra (https://developers.openai.com/api/docs/models/gpt-6-astra)
+    # Released 2026-09-03. Responses API, 1.05M context / 128K max output.
+    # NOTE on effort: verified against the live API 2026-09-14. A rejected
+    # value returns the authoritative list: "Supported values are: 'low',
+    # 'medium', 'high', 'xhigh', and 'max'." All five are registered below.
+    # "minimal" and "none" are NOT supported (the migration guide says to use
+    # "low" instead), so there is deliberately no gpt-6-astra-minimal entry.
+    # =========================================================================
+    "gpt-6-astra": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+        "websearch": False,
+    },
+    "gpt-6-astra-low": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "low",
+        "websearch": False,
+    },
+    "gpt-6-astra-medium": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+        "websearch": False,
+    },
+    "gpt-6-astra-high": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "high",
+        "websearch": False,
+    },
+    "gpt-6-astra-xhigh": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "xhigh",
+        "websearch": False,
+    },
+    "gpt-6-astra-max": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "max",
+        "websearch": False,
+    },
+    "gpt-6-astra-websearch": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+        "websearch": True,
+    },
+    "gpt-6-astra-low-websearch": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "low",
+        "websearch": True,
+    },
+    "gpt-6-astra-medium-websearch": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+        "websearch": True,
+    },
+    "gpt-6-astra-high-websearch": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "high",
+        "websearch": True,
+    },
+    "gpt-6-astra-xhigh-websearch": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "xhigh",
+        "websearch": True,
+    },
+    "gpt-6-astra-max-websearch": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "max",
+        "websearch": True,
+    },
     "gpt-5.1": {
         "model": "gpt-5.1-chat-latest",
         "reasoning_effort": None,
@@ -469,6 +538,7 @@ MODEL_REGISTRY = {
     # web_search tool is available (chat completions can't do web search).
     "nvinfer-gpt-5-mini-websearch": {
         "model": "us/azure/openai/eccn-gpt-5-mini",
+        # "model": "openai/openai/gpt-5-mini",
         "max_tokens": 32768,
         "websearch": True,
     },

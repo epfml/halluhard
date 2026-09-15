@@ -217,6 +217,11 @@ class NvidiaInferenceResponsesSampler(ResponsesSampler):
     models (e.g. the judge's web-grounding fallback).
     """
 
+    # Prompt caching is an OpenAI-hosted feature; this gateway is a LiteLLM
+    # proxy that need not accept `prompt_cache_key`. Leave it off here so the
+    # gateway path behaves exactly as it did before caching was added.
+    _send_prompt_cache_key = False
+
     def __init__(
         self,
         model: str,

@@ -39,6 +39,14 @@ class AnthropicSampler(SamplerBase):
     # Beta header for effort parameter (Claude Opus 4.5 only - GA on Opus 4.6+)
     EFFORT_BETA = "effort-2025-11-24"
 
+    # Anthropic only caches a prefix that reaches a minimum length: ~1024
+    # tokens for Opus/Sonnet, ~2048 for Haiku. Below it the cache_control
+    # marker is silently ignored, so we skip marking short prompts rather than
+    # emit markers that do nothing. Thresholds are in characters at a
+    # deliberately conservative ~4 chars/token.
+    MIN_CACHEABLE_CHARS = 4400
+    MIN_CACHEABLE_CHARS_HAIKU = 8800
+
     def _is_opus_46_or_newer(self) -> bool:
         """Check if the model is Claude Opus 4.6 or newer.
         
@@ -58,6 +66,7 @@ class AnthropicSampler(SamplerBase):
         effort: Optional[str] = None,
         websearch: bool = False,
         max_web_searches: int = 5,
+        prompt_caching: bool = True,
     ):
         """
         Initialize the Anthropic sampler.
@@ -75,6 +84,11 @@ class AnthropicSampler(SamplerBase):
             websearch: Enable web search tool for real-time information.
                       See: https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
             max_web_searches: Maximum number of web searches per request (default 5)
+            prompt_caching: Mark the reusable prefix of each request with
+                      cache_control so repeated system prompts (and, on
+                      multi-turn requests, the conversation so far) are billed
+                      at the cache-read rate instead of in full.
+                      See: https://platform.claude.com/docs/en/build-with-claude/prompt-caching
         """
         self.api_key_name = "ANTHROPIC_API_KEY"
         assert os.environ.get("ANTHROPIC_API_KEY"), "Please set ANTHROPIC_API_KEY"
@@ -87,6 +101,7 @@ class AnthropicSampler(SamplerBase):
         self.effort = effort
         self.websearch = websearch
         self.max_web_searches = max_web_searches
+        self.prompt_caching = prompt_caching
         
         # Validate effort parameter
         valid_effort_levels = ["low", "medium", "high"]
@@ -106,6 +121,84 @@ class AnthropicSampler(SamplerBase):
     def _pack_message(self, role: str, content: Any) -> dict[str, Any]:
         return {"role": str(role), "content": content}
 
+    def _min_cacheable_chars(self) -> int:
+        """Smallest prompt worth marking for cache, in characters."""
+        if "haiku" in self.model.lower():
+            return self.MIN_CACHEABLE_CHARS_HAIKU
+        return self.MIN_CACHEABLE_CHARS
+
+    @staticmethod
+    def _conversation_chars(msgs: list) -> int:
+        """Rough character size of a message list, for cache-threshold checks."""
+        total = 0
+        for msg in msgs:
+            if not isinstance(msg, dict):
+                continue
+            content = msg.get("content")
+            if isinstance(content, str):
+                total += len(content)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        total += len(block.get("text") or "")
+                    elif isinstance(block, str):
+                        total += len(block)
+        return total
+
+    def _build_system_param(self, combined_system: str):
+        """System prompt, carrying a cache breakpoint when it is long enough.
+
+        Anthropic caches everything before the breakpoint, and tools are
+        ordered ahead of the system prompt, so this single marker covers the
+        web search tool definition as well. Every caller in this repo sends one
+        fixed system prompt plus per-item content, so the whole prefix is
+        reusable across the run.
+        """
+        if not self.prompt_caching or len(combined_system) < self._min_cacheable_chars():
+            return combined_system
+        return [
+            {
+                "type": "text",
+                "text": combined_system,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
+    def _apply_conversation_cache_breakpoint(self, msgs: list) -> list:
+        """Cache the conversation so far on multi-turn requests.
+
+        Marking the tail of the newest turn means the *next* turn reads this
+        entire conversation from cache. A single-turn request has no next turn
+        to repay the 1.25x cache-write surcharge, so this only applies once
+        there is a real conversation prefix (user, assistant, user).
+        """
+        if not self.prompt_caching or len(msgs) < 3:
+            return msgs
+
+        last = msgs[-1]
+        if not isinstance(last, dict):
+            return msgs
+
+        # What has to clear the minimum is the whole prefix being cached, not
+        # the newest message: a one-line follow-up on a long conversation is
+        # exactly the case caching pays off best.
+        if self._conversation_chars(msgs) < self._min_cacheable_chars():
+            return msgs
+
+        content = last.get("content")
+        if isinstance(content, str):
+            blocks = [{"type": "text", "text": content}]
+        elif isinstance(content, list) and content:
+            blocks = list(content)
+        else:
+            return msgs
+
+        if not isinstance(blocks[-1], dict):
+            return msgs
+
+        blocks[-1] = {**blocks[-1], "cache_control": {"type": "ephemeral"}}
+        return msgs[:-1] + [{**last, "content": blocks}]
+
     def _extract_token_usage(self, response: Any) -> dict[str, int]:
         """Extract token usage from Anthropic API response.
         
@@ -120,18 +213,29 @@ class AnthropicSampler(SamplerBase):
             "output_tokens": 0,
             "total_tokens": 0,
             "cached_tokens": 0,
+            "cache_creation_tokens": 0,
             "reasoning_tokens": 0,
         }
         
         usage = getattr(response, "usage", None)
         
         if usage:
-            token_usage["input_tokens"] = getattr(usage, "input_tokens", 0)
-            token_usage["output_tokens"] = getattr(usage, "output_tokens", 0)
-            token_usage["total_tokens"] = token_usage["input_tokens"] + token_usage["output_tokens"]
+            token_usage["input_tokens"] = getattr(usage, "input_tokens", 0) or 0
+            token_usage["output_tokens"] = getattr(usage, "output_tokens", 0) or 0
             
-            # Anthropic reports cache read/creation tokens
-            token_usage["cached_tokens"] = getattr(usage, "cache_read_input_tokens", 0)
+            # Anthropic reports cache reads (billed at 0.1x) and cache writes
+            # (billed at 1.25x) separately.
+            token_usage["cached_tokens"] = getattr(usage, "cache_read_input_tokens", 0) or 0
+            token_usage["cache_creation_tokens"] = getattr(usage, "cache_creation_input_tokens", 0) or 0
+            
+            # input_tokens counts only the uncached remainder, so cached reads
+            # and writes have to be added back for a comparable total.
+            token_usage["total_tokens"] = (
+                token_usage["input_tokens"]
+                + token_usage["cached_tokens"]
+                + token_usage["cache_creation_tokens"]
+                + token_usage["output_tokens"]
+            )
         
         return token_usage
 
@@ -175,7 +279,7 @@ class AnthropicSampler(SamplerBase):
                 # Prepare common arguments
                 kwargs = {
                     "model": self.model,
-                    "messages": msgs,
+                    "messages": self._apply_conversation_cache_breakpoint(msgs),
                     "temperature": self.temperature,
                 }
                 
@@ -183,9 +287,9 @@ class AnthropicSampler(SamplerBase):
                 if self.max_tokens is not None:
                     kwargs["max_tokens"] = self.max_tokens
                 
-                # Add combined system message if any
+                # Add combined system message if any, with a cache breakpoint
                 if combined_system:
-                    kwargs["system"] = combined_system
+                    kwargs["system"] = self._build_system_param(combined_system)
                 
                 # Add web search tool if enabled
                 # See: https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
