@@ -56,12 +56,20 @@ class AnthropicSampler(SamplerBase):
         # Match claude-opus-4-6, claude-opus-4.6, or any version after 4.6
         return "opus-4-6" in model_lower or "opus-4.6" in model_lower
 
+    def _is_opus_47(self) -> bool:
+        """Check if the model is Claude Opus 4.7.
+        
+        Opus 4.7 supports adaptive thinking mode.
+        """
+        model_lower = self.model.lower()
+        return "opus-4-7" in model_lower or "opus-4.7" in model_lower
+
     def __init__(
         self,
         model: str = "claude-sonnet-4-5",
         system_message: Optional[str] = None,
-        temperature: float = 0.0,
-        max_tokens: int = 4048,
+        temperature: float = 1.0,
+        max_tokens: int = 10000,
         max_retries: int = 5,
         effort: Optional[str] = None,
         websearch: bool = False,
@@ -105,10 +113,18 @@ class AnthropicSampler(SamplerBase):
         
         # Validate effort parameter
         valid_effort_levels = ["low", "medium", "high"]
-        if self._is_opus_46_or_newer():
+        if self._is_opus_46():
             valid_effort_levels.append("max")
         if effort is not None and effort not in valid_effort_levels:
             raise ValueError(f"effort must be one of {valid_effort_levels}, got: {effort}")
+        
+        # Validate thinking parameter (only for Opus 4.7)
+        if thinking and not self._is_opus_47():
+            raise ValueError("thinking mode is only supported for Claude Opus 4.7")
+        
+        # Validate temperature for thinking mode (must be 1.0)
+        if thinking and temperature != 1.0:
+            raise ValueError(f"temperature must be 1.0 when thinking is enabled, got: {temperature}")
         
         # Build a descriptive tag for logging
         tag_parts = [model]
@@ -116,6 +132,8 @@ class AnthropicSampler(SamplerBase):
             tag_parts.append(f"effort={effort}")
         if websearch:
             tag_parts.append("websearch")
+        if thinking:
+            tag_parts.append("thinking")
         self._log_tag = f"{tag_parts[0]}[{','.join(tag_parts[1:])}]" if len(tag_parts) > 1 else model
 
     def _pack_message(self, role: str, content: Any) -> dict[str, Any]:
@@ -282,7 +300,12 @@ class AnthropicSampler(SamplerBase):
                     "messages": self._apply_conversation_cache_breakpoint(msgs),
                     "temperature": self.temperature,
                 }
-                
+
+                # Only include temperature if set. Newer models (e.g. Sonnet 5,
+                # Fable 5) deprecate the temperature parameter and 400 if it's sent.
+                if self.temperature is not None:
+                    kwargs["temperature"] = self.temperature
+
                 # Only include max_tokens if explicitly set
                 if self.max_tokens is not None:
                     kwargs["max_tokens"] = self.max_tokens
@@ -300,18 +323,44 @@ class AnthropicSampler(SamplerBase):
                         "max_uses": self.max_web_searches,
                     }]
                 
-                # Handle effort parameter
+                # Handle effort and thinking parameters
                 if self.effort is not None:
                     kwargs["output_config"] = {"effort": self.effort}
-                    if self._is_opus_46_or_newer():
-                        # Opus 4.6+: effort is GA, no beta header needed
-                        response = await self.client.messages.create(**kwargs)
+                
+                if self.thinking:
+                    # Opus 4.7: adaptive thinking mode
+                    kwargs["thinking"] = {"type": "adaptive"}
+                
+                # Determine which API to use and whether to stream
+                # Use streaming for thinking mode (Opus 4.7) since it may exceed 10 minute timeout
+                use_streaming = self.thinking
+                
+                if self.effort is not None and not self._is_opus_46():
+                    # Opus 4.5: use beta API with effort header for effort parameter
+                    kwargs["betas"] = [self.EFFORT_BETA]
+                    if use_streaming:
+                        stream = self.client.beta.messages.stream(**kwargs)
+                        content, usage_data = await self._collect_streamed_response(stream)
+                        # Create a mock response object with collected data
+                        response = type('obj', (object,), {
+                            'content': [type('obj', (object,), {'text': content})()],
+                            'usage': usage_data,
+                            'stop_reason': 'end_turn',
+                        })()
                     else:
-                        # Opus 4.5: use beta API with effort header
-                        kwargs["betas"] = [self.EFFORT_BETA]
                         response = await self.client.beta.messages.create(**kwargs)
                 else:
-                    response = await self.client.messages.create(**kwargs)
+                    if use_streaming:
+                        stream = self.client.messages.stream(**kwargs)
+                        content, usage_data = await self._collect_streamed_response(stream)
+                        # Create a mock response object with collected data
+                        response = type('obj', (object,), {
+                            'content': [type('obj', (object,), {'text': content})()],
+                            'usage': usage_data,
+                            'stop_reason': 'end_turn',
+                        })()
+                    else:
+                        response = await self.client.messages.create(**kwargs)
                 
                 # Extract text from response content
                 # For web search responses, we need to handle multiple block types

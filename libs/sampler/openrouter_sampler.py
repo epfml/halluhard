@@ -2,6 +2,8 @@
 
 OpenRouter provides OpenAI-compatible API for various models including GLM-4.7 and GLM-5.
 GLM-5 (Zhipu) is available as z-ai/glm-5. Use thinking=True for reasoning mode where supported.
+Responses are streamed by default (stream=True) to avoid long-request timeouts; chunks are
+accumulated into the full text and usage is collected from the final chunk.
 See: https://openrouter.ai/docs, https://openrouter.ai/models
 """
 
@@ -75,6 +77,7 @@ class OpenRouterSampler(SamplerBase):
         max_retries: int = 5,
         thinking: bool = False,
         websearch: bool = False,
+        stream: bool = True,
     ):
         """
         Initialize the OpenRouter sampler.
@@ -85,6 +88,7 @@ class OpenRouterSampler(SamplerBase):
             temperature: Sampling temperature (default 0.6)
             max_retries: Number of retries on transient errors
             thinking: Whether to enable reasoning/thinking mode (for complex reasoning tasks)
+            stream: Whether to stream the response (avoids long-request timeouts; default True)
         """
         self.api_key_name = "OPENROUTER_API_KEY"
         assert os.environ.get("OPENROUTER_API_KEY"), "Please set OPENROUTER_API_KEY"
@@ -95,6 +99,7 @@ class OpenRouterSampler(SamplerBase):
         self.max_retries = max_retries
         self.thinking = thinking
         self.websearch = websearch
+        self.stream = stream
 
         tag_parts = [model.replace("/", "-")]
         if thinking:
@@ -131,6 +136,34 @@ class OpenRouterSampler(SamplerBase):
             token_usage["total_tokens"] = getattr(usage, "total_tokens", 0)
 
         return token_usage
+
+    async def _stream_completion(self, kwargs: dict[str, Any]) -> tuple[str, Any]:
+        """Run a streaming chat completion, accumulating content and final usage.
+
+        Requests usage in the final chunk via stream_options. Returns the joined
+        content and the last response object that carried a usage payload (or None).
+        """
+        kwargs = {
+            **kwargs,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+
+        content_parts: list[str] = []
+        usage_carrier: Any = None
+
+        stream = await self.client.chat.completions.create(**kwargs)
+        async for chunk in stream:
+            # The final usage-only chunk has an empty choices list.
+            if getattr(chunk, "choices", None):
+                delta = chunk.choices[0].delta
+                piece = getattr(delta, "content", None)
+                if piece:
+                    content_parts.append(piece)
+            if getattr(chunk, "usage", None):
+                usage_carrier = chunk
+
+        return "".join(content_parts), usage_carrier
 
     def _sanitize_messages(self, messages: list) -> list:
         """Sanitize messages to ensure compatibility with OpenRouter API.
@@ -185,9 +218,13 @@ class OpenRouterSampler(SamplerBase):
                 if extra_body:
                     kwargs["extra_body"] = extra_body
 
-                response = await self.client.chat.completions.create(**kwargs)
-
-                content = response.choices[0].message.content or ""
+                if self.stream:
+                    content, usage_response = await self._stream_completion(kwargs)
+                    usage = getattr(usage_response, "usage", None)
+                else:
+                    response = await self.client.chat.completions.create(**kwargs)
+                    content = response.choices[0].message.content or ""
+                    usage = response.usage
 
                 # Check for empty responses
                 if not content.strip():
@@ -196,11 +233,11 @@ class OpenRouterSampler(SamplerBase):
                     )
 
                 # Extract token usage from response
-                token_usage = self._extract_token_usage(response)
+                token_usage = self._extract_token_usage(usage_response if self.stream else response)
 
                 return SamplerResponse(
                     response_text=content,
-                    response_metadata={"usage": response.usage},
+                    response_metadata={"usage": usage},
                     actual_queried_message_list=msgs,
                     token_usage=token_usage,
                 )

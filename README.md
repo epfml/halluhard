@@ -6,13 +6,7 @@ A framework for evaluating hallucinations in multi-turn conversations across cha
 
 Check out our website for the updates on newly released models: https://halluhard.com/
 
-[Update: Apr 30, 2026] Added GPT-5.5-thinking, Claude-Opus-4.7, and DeepSeek-V4-Pro
-
-[Update: Apr 23, 2026] Added Kimi-K2.6-thinking
-
-[Update: Apr 02, 2026] Added websearch variants of two open-weight models: GLM-5-thinking-WS and Kimi-K2.5-WS
-
-[Update: Feb 12, 2026] We’ve added the following models to our leaderboard: Kimi-K2.5-thinking (released Jan 29, 2026), GLM-5-thinking (released Feb 11, 2026), Grok-4-thinking, and Grok-4.1-thinking-fast.
+See [CHANGELOG.md](CHANGELOG.md) for the history of model additions and benchmark updates.
 
 ## Preparation
 
@@ -40,20 +34,35 @@ export ANTHROPIC_API_KEY="..."
 # Add others as needed (e.g., Google/DeepSeek/Moonshot), depending on what you run.
 ```
 
+Disclaimer: we offered 300 seed tasks in the coding domain, however, we only used the first 200 (50 per coding language). 
 
 ## Quick Start
 
 ### 1. Generate Responses
 
-Generate multi-turn conversations using different model:
+Generate multi-turn conversations using different model. 
 
 ```bash
 # Example: Research Questions task
-pixi run python -m research_questions.generate_responses \
-  --data research_questions/data/research_questions_all.jsonl \
+task_name="research_questions"
+RESEARCH_DATA_PATH="research_questions/data/research_questions_all.jsonl"
+pixi run python -m $task_name.generate_responses \
+  --data $RESEARCH_DATA_PATH$ \
   --model gpt-5 \
   --max-follow-ups 2 \
   --max-concurrent 100 \
+```
+
+```bash
+# Example: Coding task
+task_name = "coding"
+CODING_DATA_PATH="coding/data/coding_questions.jsonl"
+pixi run python -m $task_name.generate_responses \
+  --data $CODING_DATA_PATH \
+  --model gpt-6-astra \
+  --max-follow-ups 2 \
+  --max-concurrent 30 \
+  --n 50 # 50 per coding language
 ```
 
 Tips: 

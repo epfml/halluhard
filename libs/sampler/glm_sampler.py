@@ -1,8 +1,9 @@
-"""GLM sampler - Zhipu GLM models via Modal Direct (OpenAI-compatible).
+"""GLM sampler - Zhipu GLM models via the official Z.AI API (OpenAI-compatible).
 
-Uses https://api.us-west-2.modal.direct/v1/chat/completions.
-Set MODAL_GLM_API_KEY to your Modal bearer token.
-Set thinking=True for reasoning mode (extra_body; may be ignored by Modal).
+Uses https://api.z.ai/api/paas/v4/chat/completions.
+Set ZAI_API_KEY to your Z.AI API key.
+Set thinking=True for reasoning mode (extra_body.thinking = {"type": "enabled"}).
+See: https://docs.z.ai/guides/llm/glm-5.2
 """
 
 import logging
@@ -22,20 +23,20 @@ dotenv.load_dotenv()
 
 _logger = logging.getLogger(__name__)
 
-# Modal Direct API (OpenAI-compatible chat completions)
-MODAL_GLM_BASE = "https://api.us-west-2.modal.direct/v1"
+# Z.AI API (OpenAI-compatible chat completions)
+ZAI_GLM_BASE = "https://api.z.ai/api/paas/v4"
 
 # Shared client for GLM (connection pooling)
 _shared_glm_client: AsyncOpenAI | None = None
 
 
 def get_shared_glm_client(max_connections: int = 50) -> AsyncOpenAI:
-    """Get or create the shared AsyncOpenAI client for Modal GLM API."""
+    """Get or create the shared AsyncOpenAI client for the Z.AI GLM API."""
     global _shared_glm_client
     if _shared_glm_client is None:
-        api_key = os.getenv("MODAL_GLM_API_KEY")
+        api_key = os.getenv("ZAI_API_KEY")
         if not api_key:
-            raise ValueError("Please set MODAL_GLM_API_KEY environment variable")
+            raise ValueError("Please set ZAI_API_KEY environment variable")
 
         http_client = httpx.AsyncClient(
             limits=httpx.Limits(
@@ -47,45 +48,52 @@ def get_shared_glm_client(max_connections: int = 50) -> AsyncOpenAI:
             http2=False,
         )
         _shared_glm_client = AsyncOpenAI(
-            base_url=MODAL_GLM_BASE,
+            base_url=ZAI_GLM_BASE,
             api_key=api_key,
             timeout=300.0,
             max_retries=0,
             http_client=http_client,
         )
-        _logger.debug("Created shared GLM (Modal) client")
+        _logger.debug("Created shared GLM (Z.AI) client")
     return _shared_glm_client
 
 
 class GlmSampler(SamplerBase):
     """
-    Sample from Zhipu GLM models via Modal Direct API.
+    Sample from Zhipu GLM models via the official Z.AI API.
 
-    OpenAI-compatible endpoint. Thinking mode via extra_body (if supported).
+    OpenAI-compatible endpoint. Thinking mode via extra_body.thinking.
+    See: https://docs.z.ai/guides/llm/glm-5.2
     """
 
     def __init__(
         self,
-        model: str = "zai-org/GLM-5-FP8",
+        model: str = "glm-5.2",
         system_message: Optional[str] = None,
         temperature: float = 0.0,
         max_tokens: int = 4096,
         max_retries: int = 5,
         thinking: bool = False,
+        thinking_type: Optional[str] = None,
+        effort: Optional[str] = None,
     ):
         """
         Initialize the GLM sampler.
 
         Args:
-            model: Model id (e.g. "zai-org/GLM-5-FP8")
+            model: Model id (e.g. "glm-5.2")
             system_message: Optional system message to prepend
             temperature: Sampling temperature
             max_tokens: Max tokens to generate
             max_retries: Number of retries on transient errors
-            thinking: If True, send extra_body.thinking (may be ignored by Modal)
+            thinking: If True, send thinking {"type": "enabled"}, else "disabled".
+                Ignored when thinking_type is set.
+            thinking_type: Explicit Z.AI thinking type ("enabled", "disabled",
+                "adaptive"). Overrides the `thinking` bool when provided.
+            effort: If set, sends output_config {"effort": effort} (e.g. "max").
         """
-        self.api_key_name = "MODAL_GLM_API_KEY"
-        assert os.environ.get("MODAL_GLM_API_KEY"), "Please set MODAL_GLM_API_KEY"
+        self.api_key_name = "ZAI_API_KEY"
+        assert os.environ.get("ZAI_API_KEY"), "Please set ZAI_API_KEY"
         self.client = get_shared_glm_client()
         self.model = model
         self.system_message = system_message
@@ -93,10 +101,26 @@ class GlmSampler(SamplerBase):
         self.max_tokens = max_tokens
         self.max_retries = max_retries
         self.thinking = thinking
+        self.thinking_type = thinking_type
+        self.effort = effort
         tag_parts = [model]
-        if thinking:
+        if thinking_type:
+            tag_parts.append(thinking_type)
+        elif thinking:
             tag_parts.append("thinking")
+        if effort:
+            tag_parts.append(f"effort-{effort}")
         self._log_tag = "-".join(tag_parts)
+
+    def _build_extra_body(self) -> dict[str, Any]:
+        """Build the Z.AI extra_body (thinking + optional output_config)."""
+        thinking_type = self.thinking_type or (
+            "enabled" if self.thinking else "disabled"
+        )
+        extra_body: dict[str, Any] = {"thinking": {"type": thinking_type}}
+        if self.effort is not None:
+            extra_body["output_config"] = {"effort": self.effort}
+        return extra_body
 
     def _pack_message(self, role: str, content: Any) -> dict[str, Any]:
         return {"role": str(role), "content": content}
@@ -159,9 +183,7 @@ class GlmSampler(SamplerBase):
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "stream": True,
-            "extra_body": {
-                "thinking": {"type": "enabled" if self.thinking else "disabled"}
-            },
+            "extra_body": self._build_extra_body(),
         }
         if tool_stream and tools:
             kwargs["tool_stream"] = True
@@ -206,16 +228,14 @@ class GlmSampler(SamplerBase):
                     "temperature": self.temperature,
                     "max_tokens": self.max_tokens,
                 }
-                kwargs["extra_body"] = {
-                    "thinking": {"type": "enabled" if self.thinking else "disabled"}
-                }
+                kwargs["extra_body"] = self._build_extra_body()
 
                 response = await self.client.chat.completions.create(**kwargs)
                 content = response.choices[0].message.content or ""
 
                 if not content.strip():
                     raise RuntimeError(
-                        f"GLM (Modal) returned empty response. Model: {self.model}"
+                        f"GLM (Z.AI) returned empty response. Model: {self.model}"
                     )
 
                 token_usage = self._extract_token_usage(response)
