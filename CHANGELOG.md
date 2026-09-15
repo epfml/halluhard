@@ -3,6 +3,9 @@
 All notable updates to the HalluHard benchmark and leaderboard are documented here.
 See the live leaderboard at https://halluhard.com/.
 
+## Sept 15, 2026
+- Added GPT-6-Astra, with default medium thinking. 
+
 ## Jul 7, 2026
 - Added Fable-5 (with and without websearch) and Sonnet-5, both with the default adaptive thinking.
 

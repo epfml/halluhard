@@ -1,5 +1,6 @@
 """Adapted from response_sampler.py in OpenAI's Simple-Evals to be async and support websearch"""
 
+import hashlib
 import logging
 import os
 import asyncio
@@ -17,6 +18,21 @@ import dotenv
 dotenv.load_dotenv()
 
 _logger = logging.getLogger(__name__)
+
+
+def content_to_text(content: Any) -> str:
+    """Flatten a message's content (str or list of content blocks) to text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(block.get("text") or block.get("input_text") or "")
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts)
+    return ""
 
 # Shared OpenAI client for all samplers (connection pooling)
 _shared_openai_client: AsyncOpenAI | None = None
@@ -57,6 +73,12 @@ class ResponsesSampler(SamplerBase):
     Sample from OpenAI's responses API
     """
 
+    # Class-level defaults so that subclasses which deliberately skip
+    # ResponsesSampler.__init__ but reuse __call__ (see
+    # NvidiaInferenceResponsesSampler) still resolve these attributes.
+    prompt_cache_key: str | None = None
+    _send_prompt_cache_key: bool = True
+
     def __init__(
         self,
         model: str,
@@ -66,6 +88,7 @@ class ResponsesSampler(SamplerBase):
         reasoning_effort: str | None = None,
         max_retries: int = 10,
         websearch: bool = False,
+        prompt_cache_key: str | None = None,
     ):
         self.api_key_name = "OPENAI_API_KEY"
         assert os.environ.get("OPENAI_API_KEY"), "Please set OPENAI_API_KEY"
@@ -78,6 +101,10 @@ class ResponsesSampler(SamplerBase):
         self.reasoning_effort = reasoning_effort
         self.max_retries = max_retries
         self.websearch = websearch
+        self.prompt_cache_key = prompt_cache_key
+        # Turned off permanently if the endpoint rejects the parameter, so an
+        # older or non-OpenAI-hosted deployment degrades instead of failing.
+        self._send_prompt_cache_key = True
         
         # Build a descriptive tag for logging
         tag_parts = [model]
@@ -105,6 +132,35 @@ class ResponsesSampler(SamplerBase):
 
     def _pack_message(self, role: str, content: Any) -> dict[str, Any]:
         return {"role": role, "content": content}
+
+    def _derive_prompt_cache_key(self, message_list: MessageList) -> str | None:
+        """Stable cache key for the invariant head of this prompt.
+
+        Prompt caching on the Responses API is automatic: OpenAI reuses any
+        prefix it has seen recently (>=1024 tokens) and bills those tokens at
+        roughly a tenth of the uncached rate. The one lever a client has is
+        `prompt_cache_key`, which keeps requests that share a prefix pinned to
+        the same cache instead of scattering them across machines. Every task
+        here sends one fixed system prompt followed by per-item content, so we
+        key on the system prompt: one key per distinct prompt, which is exactly
+        the low-cardinality grouping the parameter wants.
+
+        See https://developers.openai.com/api/docs/guides/prompt-caching
+        """
+        if self.prompt_cache_key:
+            return self.prompt_cache_key
+
+        prefix_parts = []
+        for msg in message_list:
+            if not isinstance(msg, dict) or msg.get("role") not in ("system", "developer"):
+                break
+            prefix_parts.append(content_to_text(msg.get("content", "")))
+
+        if not prefix_parts:
+            return None
+
+        digest = hashlib.sha256("\n".join(prefix_parts).encode("utf-8")).hexdigest()[:16]
+        return f"{self.model}:{digest}"
 
     def _extract_token_usage(self, response: Any) -> dict[str, int]:
         """Extract token usage from OpenAI API response.
@@ -159,6 +215,12 @@ class ResponsesSampler(SamplerBase):
                     "input": message_list,
                 }
                 
+                # Pin requests sharing a system prompt to the same prompt cache.
+                if self._send_prompt_cache_key:
+                    cache_key = self._derive_prompt_cache_key(message_list)
+                    if cache_key:
+                        kwargs["prompt_cache_key"] = cache_key
+
                 # Add websearch tools if enabled
                 if self.websearch:
                     kwargs["tools"] = [{"type": "web_search"}]
@@ -200,6 +262,15 @@ class ResponsesSampler(SamplerBase):
                     token_usage=token_usage,
                 )
             except openai.BadRequestError as e:
+                # An endpoint that does not know `prompt_cache_key` should cost
+                # us caching, not the request. Drop it and retry once.
+                if self._send_prompt_cache_key and "prompt_cache_key" in str(e):
+                    _logger.warning(
+                        f"[{self._log_tag}] Endpoint rejected prompt_cache_key; "
+                        f"disabling it for this sampler: {e}"
+                    )
+                    self._send_prompt_cache_key = False
+                    continue
                 _logger.warning(f"[{self._log_tag}] Bad Request Error: {e}")
                 raise RuntimeError(f"OpenAI API BadRequestError: {e}") from e
             except openai.RateLimitError as e:

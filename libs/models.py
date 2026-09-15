@@ -330,6 +330,36 @@ MODEL_REGISTRY = {
         "reasoning_effort": "high",
         "websearch": True,
     },
+    "gpt-6-astra": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+        "websearch": False,
+    },
+    "gpt-6-astra-medium": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+        "websearch": False,
+    },
+    "gpt-6-astra-high": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "high",
+        "websearch": False,
+    },
+    "gpt-6-astra-xhigh": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "xhigh",
+        "websearch": False,
+    },
+    "gpt-6-astra-max": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "max",
+        "websearch": False,
+    },
+    "gpt-6-astra-websearch": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+        "websearch": True,
+    },
     "gpt-5.5-medium": {
         "model": "gpt-5.5",
         "reasoning_effort": "medium",
@@ -478,6 +508,7 @@ MODEL_REGISTRY = {
     # web_search tool is available (chat completions can't do web search).
     "nvinfer-gpt-5-mini-websearch": {
         "model": "us/azure/openai/eccn-gpt-5-mini",
+        # "model": "openai/openai/gpt-5-mini",
         "max_tokens": 32768,
         "websearch": True,
     },
