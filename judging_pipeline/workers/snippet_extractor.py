@@ -99,6 +99,7 @@ class SnippetExtractorWorker(Worker[SearchTask, ContentItem]):
             claim=item.claim,
             contents=contents,
             pdf_contents=[],
+            direct_url=item.direct_url,
             search_results_text=item.search_results_text,
             queries=item.queries_executed,
             whitelist_skip=item.whitelist_skip,

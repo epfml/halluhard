@@ -130,6 +130,7 @@ class BasePipeline(ABC):
         max_claims_per_category: int | None = None,
         judge_model: str | None = None,
         judge_fallback_model: str | None = None,
+        escalation_rounds: int = 1,
     ):
         self.input_path = input_path
         self.output_path = output_path
@@ -144,6 +145,8 @@ class BasePipeline(ABC):
         self.checkpoint_interval = checkpoint_interval
         self.judge_model = judge_model
         self.judge_fallback_model = judge_fallback_model
+        self.escalation_rounds = escalation_rounds
+        self._evidence_escalator = None
         
         # Initialize strategy
         self.strategy = get_strategy(task_name, self.base_path)
@@ -278,6 +281,17 @@ class BasePipeline(ABC):
         if self.model_config.search:
             self.samplers["search"] = get_sampler(self.model_config.search)
     
+    def _build_evidence_escalator(self):
+        """Escalator for judges that ask for more evidence (None when disabled)."""
+        if self.escalation_rounds <= 0:
+            return None
+        if self._evidence_escalator is None:
+            from .workers import EvidenceEscalator
+            from libs.serper.client import SerperSearchClient
+            self._evidence_escalator = EvidenceEscalator(SerperSearchClient())
+            logger.info(f"Evidence escalation enabled ({self.escalation_rounds} round(s))")
+        return self._evidence_escalator
+
     def _get_claims_cache_path(self) -> Path:
         """Get the path for claims cache file."""
         if self._claims_cache_path:
@@ -1146,6 +1160,8 @@ class BasePipeline(ABC):
         # Clean up shared HTTP clients
         await close_shared_client()
         await close_pdf_session()
+        if self._evidence_escalator is not None:
+            await self._evidence_escalator.close()
         
         return output_path
     
@@ -1231,6 +1247,8 @@ class OpenAIPipeline(BasePipeline):
             sampler=self.samplers["judge"],
             strategy=self.strategy,
             sampler_fallback=self.samplers["judge_fallback"],
+            evidence_escalator=self._build_evidence_escalator(),
+            max_escalation_rounds=self.escalation_rounds,
             num_workers=self.worker_config.num_judges,
             early_stopping_state=self.early_stopping_state,
             package_cache=self.package_cache,
@@ -1308,6 +1326,8 @@ class SerperPipeline(BasePipeline):
             sampler=self.samplers["judge"],
             strategy=self.strategy,
             sampler_fallback=self.samplers["judge_fallback"],
+            evidence_escalator=self._build_evidence_escalator(),
+            max_escalation_rounds=self.escalation_rounds,
             num_workers=self.worker_config.num_judges,
             early_stopping_state=self.early_stopping_state,
             package_cache=self.package_cache,
@@ -1419,6 +1439,8 @@ class WebscraperPipeline(BasePipeline):
             sampler=self.samplers["judge"],
             strategy=self.strategy,
             sampler_fallback=self.samplers["judge_fallback"],
+            evidence_escalator=self._build_evidence_escalator(),
+            max_escalation_rounds=self.escalation_rounds,
             num_workers=self.worker_config.num_judges,
             early_stopping_state=self.early_stopping_state,
             package_cache=self.package_cache,
@@ -2098,6 +2120,7 @@ def create_pipeline(
     max_claims_per_category: int | None = None,
     judge_model: str | None = None,
     judge_fallback_model: str | None = None,
+    escalation_rounds: int = 1,
 ) -> BasePipeline:
     """Factory function to create the appropriate pipeline."""
 
@@ -2121,6 +2144,7 @@ def create_pipeline(
         claims_cache_path=Path(claims_cache_path) if claims_cache_path else None,
         checkpoint_interval=checkpoint_interval,
         max_claims_per_category=max_claims_per_category,
+        escalation_rounds=escalation_rounds,
     )
     if judging_type == "coding_direct":
         return pipeline_class(**common, judge_model=judge_model)
@@ -2152,6 +2176,7 @@ async def run_evaluation_pipeline(
     max_claims_per_category: int | None = None,
     judge_model: str | None = None,
     judge_fallback_model: str | None = None,
+    escalation_rounds: int = 1,
 ) -> Path:
     """Convenience function to create and run a pipeline."""
     worker_config = WorkerConfig(
@@ -2179,6 +2204,7 @@ async def run_evaluation_pipeline(
         max_claims_per_category=max_claims_per_category,
         judge_model=judge_model,
         judge_fallback_model=judge_fallback_model,
+        escalation_rounds=escalation_rounds,
     )
     
     return await pipeline.run()
@@ -2290,6 +2316,15 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
+        "--evidence-escalation-rounds",
+        type=int,
+        default=1,
+        help=(
+            "Extra evidence rounds when the judge reports it cannot verify a field "
+            "(0 disables; unresolved claims are excluded rather than marked hallucinated)."
+        ),
+    )
+    parser.add_argument(
         "--judge-fallback-model",
         type=str,
         default=None,
@@ -2338,6 +2373,7 @@ if __name__ == "__main__":
             checkpoint_interval=args.checkpoint_interval,
             max_claims_per_category=max_per_cat,
             judge_model=args.judge_model,
+            escalation_rounds=args.evidence_escalation_rounds,
             judge_fallback_model=args.judge_fallback_model,
         )
     )

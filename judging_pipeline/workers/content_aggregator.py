@@ -45,6 +45,7 @@ class PendingContent:
             claim=self.content_item.claim,
             contents=self.content_item.contents,
             pdf_contents=pdf_contents,
+            direct_url=self.content_item.direct_url,
             search_results_text=self.content_item.search_results_text,
             queries=self.content_item.queries,
             expected_pdf_count=self.content_item.expected_pdf_count,

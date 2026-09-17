@@ -88,6 +88,8 @@ class SearchTask:
     # URLs to fetch (determined by search planner)
     urls_to_fetch: List[str] = field(default_factory=list)
     pdf_urls: List[str] = field(default_factory=list)
+    # URL cited by the claim itself, if any (fetched with priority; see ContentFilterWorker)
+    direct_url: str = ""
     
     # Optimization flags
     whitelist_skip: bool = False  # True if web search was skipped due to known package
@@ -136,6 +138,8 @@ class ContentItem:
     # Fetched content
     contents: List[Dict[str, Any]] = field(default_factory=list)  # [{title, url, snippet, content}]
     pdf_contents: List[Dict[str, Any]] = field(default_factory=list)
+    # URL cited by the claim itself, if any (carried through for identity-block extraction)
+    direct_url: str = ""
     
     # Search context
     search_results_text: str = ""
@@ -213,6 +217,12 @@ class JudgmentResult:
     judge_used_websearch_fallback: bool = False  # Judge used websearch-enabled sampler
     snippets_only: bool = False  # No filtered_content, but have snippet search_results_text
 
+    # Evidence escalation: judge could not verify a specific field with the evidence
+    # it was given (distinct from verifying it as wrong). See JudgeWorker.
+    insufficient_evidence: bool = False
+    evidence_needed: str = ""  # What the judge asked for, e.g. "832 F.3d at 1362-66"
+    escalation_rounds: int = 0  # How many extra evidence rounds were run
+
     # Coding-specific hallucination flags
     hallucinated_import_detected: bool = False
     hallucinated_install_detected: bool = False
@@ -249,6 +259,9 @@ class JudgmentResult:
             "input_use_fallback": self.input_use_fallback,
             "judge_used_websearch_fallback": self.judge_used_websearch_fallback,
             "snippets_only": self.snippets_only,
+            "insufficient_evidence": self.insufficient_evidence,
+            "evidence_needed": self.evidence_needed,
+            "escalation_rounds": self.escalation_rounds,
             "hallucinated_import_detected": self.hallucinated_import_detected,
             "hallucinated_install_detected": self.hallucinated_install_detected,
             "hallucinated_function_usage_detected": self.hallucinated_function_usage_detected,

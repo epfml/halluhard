@@ -268,6 +268,7 @@ class WebSearcherWorker(Worker[ClaimItem, SearchTask]):
                 search_results_text="No search results found.",
                 urls_to_fetch=urls_to_fetch_fallback,
                 pdf_urls=pdf_urls_fallback[:MAX_PDFS_TO_FETCH],
+                direct_url=direct_url or "",
             )
         
         # Collect all PDF URLs first (from organic results)
@@ -321,6 +322,7 @@ class WebSearcherWorker(Worker[ClaimItem, SearchTask]):
             search_results_text=text_results,
             urls_to_fetch=urls_to_fetch,
             pdf_urls=pdf_urls[:MAX_PDFS_TO_FETCH],  # Limit PDFs
+            direct_url=direct_url or "",
         )
         
         logger.debug(f"WebSearcher completed claim {item.claim_id}: {len(urls_to_fetch)} HTML URLs, {len(pdf_urls[:MAX_PDFS_TO_FETCH])} PDF URLs")

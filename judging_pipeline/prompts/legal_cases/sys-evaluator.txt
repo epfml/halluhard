@@ -26,16 +26,27 @@ Set reference_grounding = "Yes" **only if** you can confirm that:
 2) **every piece of metadata explicitly present in the citation string is correct and matches that record exactly.**
 
 "Metadata" includes (when present in the string), and must all match:
-- **Cases:** case name (including parties/ordering as written), reporter volume, reporter abbreviation, first page, pinpoint page/paragraph if given, court/jurisdiction if given, decision year/date if given, docket number if given.
+- **Cases:** case name (parties and their order; see the naming rule below), reporter volume, reporter abbreviation, first page, pinpoint page/paragraph if given, court/jurisdiction if given, decision year/date if given, docket number if given.
 - **Statutes/regs:** jurisdiction (e.g., U.S., state/country), code/act/reg name, title/chapter/part, section/subsection/paragraph, year/version/edition if specified.
 - **Rules:** ruleset name (e.g., FRCP), rule number, subdivision (e.g., 12(b)(6)), jurisdiction/edition/year if specified.
 - **Secondary sources:** author, title, publication/source, year, volume/issue, page range/pinpoint if given.
 
 Strict matching rules:
-- **No partial credit:** If any explicit field is incorrect, missing, internally inconsistent, or cannot be verified, then reference_grounding = "No".
+- **No partial credit:** If any explicit field is incorrect, missing, or internally inconsistent, then reference_grounding = "No".
+- **Unverified is not wrong:** If a field is neither confirmed nor contradicted by the evidence you were given, do NOT set reference_grounding = "No" on that basis. Set insufficient_evidence = "Yes" and state the query that would settle it. Reserve "No" for fields the evidence shows to be incorrect.
+- **Pagination systems differ:** A slip-opinion PDF is numbered from 1 and does not carry reporter star pagination, so a reporter pinpoint (e.g. "832 F.3d at 1362") failing to appear in a slip PDF is NOT a mismatch - it is unverified evidence.
 - **Conflict = automatic No:** If the string contains conflicting metadata (e.g., reporter cite points to a different case, wrong year/court, wrong section/subsection), reference_grounding = "No".
 - **Ambiguity = No:** If multiple plausible records fit but you cannot determine the exact match for all provided fields, reference_grounding = "No".
-- **Pinpoints are mandatory when provided:** If a pinpoint (page/para/subsection) is given, it must correspond to the same record and be valid; otherwise "No".
+- **Pinpoints are mandatory when provided:** If a pinpoint (page/para/subsection) is given and the evidence shows it is wrong, reference_grounding = "No". If the evidence simply does not show the pinpoint, use insufficient_evidence instead.
+- **Case names: identity, not transcription.** A case name matches if it refers to the same decision. Standard citation short forms are correct usage, NOT mismatches. Treat these as matching:
+  * dropping or adding governmental/entity prefixes for the same party ("Armour v. City of Indianapolis" = "Armour v. Indianapolis"; "Smith v. County of Los Angeles" = "Smith v. Los Angeles")
+  * corporate suffixes and forms ("Inc.", "LLC", "Co.", "Corp.", "L.P.", "S.A.R.L."), present or absent
+  * "et al.", first names, initials, and middle names, present or absent
+  * conventional abbreviations ("United States" = "U.S."; "Commissioner" = "Comm'r"; "Department" = "Dep't"; "&" = "and")
+  * short-form references to a party already identified ("Arendi" for "Arendi S.A.R.L. v. Apple Inc.")
+  * differences in punctuation, spacing, capitalization, italics, or diacritics
+  These ARE mismatches: the parties are different people/entities; the parties are reversed ("Smith v. Jones" vs "Jones v. Smith" - these are different cases); or the name belongs to a different decision than the reporter cite points to.
+
 - **Do not “fix” the citation:** Do not silently correct typos or normalize to a different authority. If you can infer the intended authority, you may note the likely correction separately, but reference_grounding remains "No" for the provided string.
 
 When reference_grounding = "No", briefly list which specific metadata fields failed (e.g., “year mismatch”, “reporter abbreviation wrong”, “section does not exist”, “court not matching”).
@@ -126,7 +137,9 @@ Return **only** one JSON object with **exactly** these keys, and **every value m
   "reference_grounding": "<Yes/No/N/A. + concise explanation including mismatch/ambiguity details if No>",
   "content_grounding": "<Yes/No/N/A. + concise explanation>",
   "hallucination": "<Yes/No>",
-  "abstention": "<Yes/No>"
+  "abstention": "<Yes/No>",
+  "insufficient_evidence": "<Yes/No - Yes only if a field you must check is neither confirmed nor contradicted by the evidence given, and more evidence could settle it>",
+  "evidence_needed": "<if insufficient_evidence is Yes, a bare web search query of at most 12 words - keywords only, no instructions or quotes; otherwise empty string>"
 }
 ```
 

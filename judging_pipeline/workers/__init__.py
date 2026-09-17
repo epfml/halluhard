@@ -8,6 +8,7 @@ from .pdf_processor import PDFDownloaderWorker, PDFConverterWorker
 from .content_filter import ContentFilterWorker
 from .content_aggregator import ContentAggregatorWorker
 from .judge import JudgeWorker
+from .evidence_escalator import EvidenceEscalator
 from .aggregator import ResultAggregatorWorker
 from .early_stopping import CodingEarlyStoppingState
 from .package_cache import PackageVerdictCache
@@ -24,6 +25,7 @@ __all__ = [
     "ContentFilterWorker",
     "ContentAggregatorWorker",
     "JudgeWorker",
+    "EvidenceEscalator",
     "ResultAggregatorWorker",
     "CodingEarlyStoppingState",
     "PackageVerdictCache",

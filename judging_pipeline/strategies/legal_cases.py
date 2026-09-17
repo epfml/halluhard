@@ -105,6 +105,8 @@ Please output JSON with:
     - hallucination (Yes/No)
     - abstention (Yes/No)
     - verification_error (Yes/No) - Yes ONLY if there is a technical error preventing judgment. If source not found, set "No".
+    - insufficient_evidence (Yes/No) - Yes if a field you must check (e.g. a pinpoint page, reporter volume) is neither confirmed nor contradicted by the evidence above, and more evidence could settle it. Do NOT use this when the evidence shows the field is wrong.
+    - evidence_needed (string) - if insufficient_evidence is Yes, a bare web search query of at most 12 words (keywords only: names, numbers, identifiers). No instructions, no "search for", no quotes, no examples (e.g. "Chen v. Allstate 819 F.3d 1136 page 1141"); otherwise "".
 
 Follow the system prompt rules."""
 
@@ -129,6 +131,8 @@ Please output JSON with:
     - hallucination (Yes/No)
     - abstention (Yes/No)
     - verification_error (Yes/No) - Yes ONLY if technical error. If source not found, set "No".
+    - insufficient_evidence (Yes/No) - Yes if a field you must check (e.g. a pinpoint page, reporter volume) is neither confirmed nor contradicted by the evidence above, and more evidence could settle it. Do NOT use this when the evidence shows the field is wrong.
+    - evidence_needed (string) - if insufficient_evidence is Yes, a bare web search query of at most 12 words (keywords only: names, numbers, identifiers). No instructions, no "search for", no quotes, no examples (e.g. "Chen v. Allstate 819 F.3d 1136 page 1141"); otherwise "".
 
 Follow the system prompt rules."""
 
