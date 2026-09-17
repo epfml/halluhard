@@ -316,6 +316,38 @@ class SerperSearchClient:
     # Multi-Step Verification Search
     # -------------------------------------------------------------------------
     
+    @staticmethod
+    def build_identifier_query(claim_text: str) -> str | None:
+        """Bare "domain + identifier" query for a URL in the statement, or None.
+
+        An exact identifier is a lookup, not a ranking problem: letting the LLM
+        planner fold topic keywords into the query (as the prompt's "broad
+        textual identifiers" rule invites) can push the cited page out of the
+        result window entirely when the page is off-topic for the claim.
+        Issuing the bare query first makes step 0 deterministic for the same URL.
+        """
+        match = re.search(r'https?://[^\s\]\)>"\']+', claim_text or "")
+        if not match:
+            return None
+
+        parsed = urlparse(match.group(0))
+        domain = parsed.netloc.lower().removeprefix("www.")
+        if not domain:
+            return None
+
+        # Path segments carry the identifier (arxiv "abs/2011.01808", doi "10.1103/...").
+        # Drop file extensions and stop-segments that identify nothing on their own.
+        segments = [seg for seg in parsed.path.split("/") if seg]
+        segments = [re.sub(r"\.(pdf|html?)$", "", seg, flags=re.I) for seg in segments]
+        segments = [seg for seg in segments if seg.lower() not in ("abs", "pdf", "html", "en", "full", "doi")]
+        # Drop date fragments ("/2013/09/17/") and repeated segments ("usrep566673/usrep566673.pdf")
+        segments = [seg for seg in segments if not (seg.isdigit() and len(seg) <= 4)]
+        deduped = [seg for i, seg in enumerate(segments) if seg.lower() not in {s.lower() for s in segments[:i]}]
+        if not deduped:
+            return None
+
+        return " ".join([domain] + deduped[-2:])
+
     async def perform_verification_search(
         self,
         claim_text: str,
@@ -362,6 +394,26 @@ class SerperSearchClient:
             f"max_searches={max_searches}, num_results={num_results}"
         )
         
+        # Step 0 for a URL-bearing claim: look the identifier up directly, so the
+        # cited page is in KNOWLEDGE before the planner starts adding topic terms.
+        identifier_query = self.build_identifier_query(claim_text)
+        if identifier_query:
+            self.logger.debug(f"{prefix}Identifier lookup query: {identifier_query!r}")
+            queries.append(identifier_query)
+            try:
+                if search_semaphore:
+                    async with search_semaphore:
+                        results, requests_made = await self.search(identifier_query, num_results, context=context)
+                else:
+                    results, requests_made = await self.search(identifier_query, num_results, context=context)
+                usage.total_serper_requests += requests_made
+                raw_results.append(results)
+            except Exception as e:
+                self.logger.debug(
+                    f"{prefix}Identifier lookup failed for query={identifier_query!r}: "
+                    f"{type(e).__name__}: {e}"
+                )
+
         for step in range(max_searches):
             self.logger.debug(f"{prefix}Verification search step {step + 1}/{max_searches}")
             
@@ -397,6 +449,11 @@ class SerperSearchClient:
                 break
             
             self.logger.debug(f"{prefix}LLM generated query: {query!r}")
+            if query.strip().lower() in {q.strip().lower() for q in queries}:
+                # The planner is instructed to vary its queries but sometimes repeats
+                # one; re-running it would spend a search step on identical results.
+                self.logger.debug(f"{prefix}Skipping duplicate query: {query!r}")
+                break
             queries.append(query)
             
             # Execute search

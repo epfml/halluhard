@@ -17,6 +17,7 @@ from ..logging_config import get_logger
 
 if TYPE_CHECKING:
     from .early_stopping import CodingEarlyStoppingState
+    from .evidence_escalator import EvidenceEscalator
     from .package_cache import PackageVerdictCache
 
 logger = get_logger()
@@ -42,6 +43,8 @@ class JudgeWorker(Worker[FilteredContent, JudgmentResult]):
         strategy: DomainStrategy,
         sampler_fallback: SamplerBase | None = None,
         system_prompt: str | None = None,
+        evidence_escalator: "EvidenceEscalator | None" = None,
+        max_escalation_rounds: int = 1,
         num_workers: int = 20,
         rate_limit_delay: float = 0.0,
         early_stopping_state: "CodingEarlyStoppingState | None" = None,
@@ -74,6 +77,10 @@ class JudgeWorker(Worker[FilteredContent, JudgmentResult]):
         self.sampler = sampler
         self.strategy = strategy
         self.sampler_fallback = sampler_fallback or sampler
+        # Fetches extra evidence when the judge says it cannot verify a field.
+        # Without one, an insufficient verdict is excluded rather than escalated.
+        self.evidence_escalator = evidence_escalator
+        self.max_escalation_rounds = max_escalation_rounds if evidence_escalator else 0
         self.system_prompt = system_prompt or self._load_default_prompt()
         self.early_stopping_state = early_stopping_state
         self.package_cache = package_cache
@@ -162,12 +169,39 @@ class JudgeWorker(Worker[FilteredContent, JudgmentResult]):
         try:
             # Use appropriate sampler
             sampler = self.sampler_fallback if use_fallback else self.sampler
-            response = await sampler(messages)
-            response_text = response.response_text.strip()
-            
-            # Parse JSON response
-            json_text = extract_json_from_response(response_text)
-            result = json.loads(json_text)
+
+            # Evidence escalation: when the judge reports it could not verify a
+            # specific field (as opposed to finding it wrong), fetch what it asked
+            # for and judge again. Bounded by max_escalation_rounds.
+            escalation_rounds = 0
+            while True:
+                response = await sampler(messages)
+                response_text = response.response_text.strip()
+
+                # Parse JSON response
+                json_text = extract_json_from_response(response_text)
+                result = json.loads(json_text)
+
+                insufficient = str(result.get("insufficient_evidence", "No")).strip().lower() in ("yes", "true")
+                if not insufficient or escalation_rounds >= self.max_escalation_rounds:
+                    break
+
+                requested = str(result.get("evidence_needed", "")).strip()
+                extra = await self.evidence_escalator(item.claim, requested, context=item.claim_id)
+                if not extra:
+                    logger.debug(f"Escalation for claim {item.claim_id} returned nothing; keeping verdict")
+                    break
+
+                escalation_rounds += 1
+                logger.info(f"🔎 ESCALATION {escalation_rounds} [Judge]: claim {item.claim_id} requested {requested!r}")
+                messages = [
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": (
+                        f"{prompt}\n\n-- Additional evidence retrieved for: {requested} --\n{extra}"
+                    )},
+                ]
+
+            insufficient = str(result.get("insufficient_evidence", "No")).strip().lower() in ("yes", "true")
             
             # Extract hallucination flags
             import_halluc = bool(result.get("hallucinated_import_detected", False))
@@ -209,6 +243,21 @@ class JudgeWorker(Worker[FilteredContent, JudgmentResult]):
                         f"📦 CACHE SET: {element_type} '{package_name}' exists={package_exists}"
                     )
             
+            # Still unverifiable after escalation: this is a statement about the
+            # evidence, not about the model, so exclude it rather than counting it
+            # as a hallucination (verification_error is already excluded upstream).
+            # Only rescue verdicts that would otherwise COUNT as a hallucination -
+            # a judge that reached "grounded" has answered the question, even if it
+            # also flagged some secondary field it could not check.
+            verification_error = result.get("verification_error", "No")
+            hallucination = result.get("hallucination", "Unknown")
+            would_be_hallucination = str(hallucination).strip().lower().startswith("yes")
+            if insufficient and would_be_hallucination:
+                verification_error = "Yes"
+                hallucination = "No"
+            elif insufficient:
+                insufficient = False  # moot: the judge verified the claim anyway
+
             return JudgmentResult(
                 claim_id=item.claim_id,
                 conversation_id=item.conversation_id,
@@ -217,9 +266,12 @@ class JudgeWorker(Worker[FilteredContent, JudgmentResult]):
                 reference_name=result.get("reference_name", "Unknown"),
                 reference_grounding=result.get("reference_grounding", "Unknown"),
                 content_grounding=result.get("content_grounding", "Unknown"),
-                hallucination=result.get("hallucination", "Unknown"),
+                hallucination=hallucination,
                 abstention=result.get("abstention", "Unknown"),
-                verification_error=result.get("verification_error", "No"),
+                verification_error=verification_error,
+                insufficient_evidence=insufficient,
+                evidence_needed=str(result.get("evidence_needed", "")).strip(),
+                escalation_rounds=escalation_rounds,
                 input_use_fallback=item.use_fallback,
                 judge_used_websearch_fallback=use_fallback,
                 snippets_only=snippets_only,

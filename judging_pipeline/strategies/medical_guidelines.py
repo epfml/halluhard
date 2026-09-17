@@ -89,7 +89,9 @@ Please output JSON with:
     - content_grounding (Yes/No/N/A) followed by explanation
     - hallucination (Yes/No)
     - abstention (Yes/No)
-    - verification_error (Yes/No) - Yes ONLY if there is a technical error preventing judgment. If source not found, set "No".
+    - verification_error (Yes/No) - Yes ONLY if there is a technical error preventing judgment. If the evidence shows the source does not exist, set "No" and mark reference_grounding "No"; if the evidence is simply silent on a field, use insufficient_evidence.
+    - insufficient_evidence (Yes/No) - Yes if a field you must check is neither confirmed nor contradicted by the evidence above, and more evidence could settle it. Do NOT use this when the evidence shows the field is wrong.
+    - evidence_needed (string) - if insufficient_evidence is Yes, a bare web search query of at most 12 words (keywords only: names, numbers, identifiers). No instructions, no "search for", no quotes, no examples; otherwise "".
 
 Follow the system prompt rules."""
 
@@ -113,7 +115,9 @@ Please output JSON with:
     - content_grounding (Yes/No/N/A) followed by explanation
     - hallucination (Yes/No)
     - abstention (Yes/No)
-    - verification_error (Yes/No) - Yes ONLY if technical error. If source not found, set "No".
+    - verification_error (Yes/No) - Yes ONLY if technical error. If the evidence shows the source does not exist, set "No"; if the snippets are merely insufficient, use insufficient_evidence.
+    - insufficient_evidence (Yes/No) - Yes if a field you must check is neither confirmed nor contradicted by the evidence above, and more evidence could settle it. Do NOT use this when the evidence shows the field is wrong.
+    - evidence_needed (string) - if insufficient_evidence is Yes, a bare web search query of at most 12 words (keywords only: names, numbers, identifiers). No instructions, no "search for", no quotes, no examples; otherwise "".
 
 Follow the system prompt rules."""
 

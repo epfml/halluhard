@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Callable, TYPE_CHECKING
+from urllib.parse import urlparse
 
 from libs.information_extraction import extract_relevant_sentences
 
@@ -19,6 +20,17 @@ logger = get_logger()
 
 # Type alias for claim text builder function
 ClaimTextBuilder = Callable[[ClaimItem], str]
+
+# Words of the claim's own cited source kept verbatim, regardless of similarity
+IDENTITY_BLOCK_WORDS = 200
+
+
+def _normalize_url(url: str) -> str:
+    """Compare URLs ignoring scheme, query and fragment (e.g. ?utm_source=openai)."""
+    if not url:
+        return ""
+    parsed = urlparse(url.strip())
+    return f"{parsed.netloc}{parsed.path}".rstrip("/").lower()
 
 
 class ContentFilterWorker(Worker[ContentItem, FilteredContent]):
@@ -128,6 +140,13 @@ class ContentFilterWorker(Worker[ContentItem, FilteredContent]):
         
         # Build claim text for similarity matching
         claim_text = self.claim_text_builder(item.claim)
+
+        # Similarity filtering ranks passages against the claim, so a correctly
+        # cited but off-topic source scores near zero and gets dropped - leaving
+        # the judge unable to confirm the reference exists and reporting it as
+        # unlocatable. Reference grounding only needs the page's identity, so the
+        # directly cited URL bypasses filtering and is always shown to the judge.
+        identity_block = self._build_identity_block(item, all_contents)
         
         # Extract relevant sentences
         filtered_content, nb_embedding_calls, nb_blocks_encoded = await extract_relevant_sentences(
@@ -138,7 +157,14 @@ class ContentFilterWorker(Worker[ContentItem, FilteredContent]):
             block_size=self.block_size,
             overlap=self.overlap,
         )
-        
+
+        if identity_block:
+            filtered_content = (
+                f"{identity_block}\n\n{filtered_content}".strip()
+                if filtered_content
+                else identity_block
+            )
+
         return FilteredContent(
             claim_id=item.claim_id,
             conversation_id=item.conversation_id,
@@ -154,3 +180,34 @@ class ContentFilterWorker(Worker[ContentItem, FilteredContent]):
             cached_verdict_exists=item.cached_verdict_exists,
         )
 
+    def _build_identity_block(self, item: ContentItem, all_contents: list) -> str:
+        """Excerpt identifying the page the claim itself cites, or "" if absent.
+
+        Only the page's identity is needed to confirm a reference exists, so a
+        short head excerpt is enough and keeps the judge's context small.
+        """
+        target = _normalize_url(item.direct_url)
+        if not target:
+            return ""
+
+        for entry in all_contents:
+            if _normalize_url(entry.get("url", "")) != target:
+                continue
+            content = (entry.get("content") or "").strip()
+            if not content:
+                continue
+
+            lines = [
+                "[CITED SOURCE] Fetched directly from the URL given in the claim. "
+                "Shown regardless of topical relevance so the reference itself can "
+                "be verified even when the page does not discuss the claim.",
+                f"URL: {entry.get('url') or item.direct_url}",
+            ]
+            title = (entry.get("title") or "").strip()
+            if title:
+                lines.append(f"Title: {title}")
+            lines.append("Excerpt: " + " ".join(content.split()[:IDENTITY_BLOCK_WORDS]))
+            logger.debug(f"Identity block added for claim {item.claim_id}: {item.direct_url}")
+            return "\n".join(lines)
+
+        return ""
